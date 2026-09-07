@@ -1,0 +1,1846 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سجل بوابة المجبل</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap');
+
+  :root{
+    /* ألوان شعار شركة صلد للصناعات الإنشائية: أخضر-تيل داكن أساسي،
+       شريط ذهبي/كاكي ثانوي، ولمسة تيل أفتح للّمعان الصغير. */
+    --bg:#F3EFE5;
+    --surface:#FFFFFF;
+    --surface-2:#EBE5D6;
+    --ink:#201D18;
+    --ink-soft:#726C5C;
+    --line:#DCD3BE;
+    --accent:#17453D;
+    --accent-ink:#F6F2E7;
+    --gold:#B9A276;
+    --gold-ink:#3A2F14;
+    --ok:#2E6E5F;
+    --ok-bg:#E1EEE9;
+    --alert:#B23327;
+    --alert-bg:#F7E0DB;
+    --warn:#9C6B0B;
+    --warn-bg:#F2E4C4;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);
+    font-family:'Cairo','Segoe UI',Tahoma,sans-serif;font-weight:400;line-height:1.55;
+  }
+  .app{max-width:1040px;margin:0 auto;padding:20px 16px 60px;}
+
+  /* ---- شاشة الدخول ---- */
+  #login-screen{
+    position:fixed;inset:0;background:var(--bg);display:flex;
+    align-items:center;justify-content:center;padding:20px;z-index:50;
+  }
+  .login-card{
+    background:var(--surface);border:1px solid var(--line);border-radius:14px;
+    padding:30px 26px;width:100%;max-width:380px;text-align:center;
+    box-shadow:0 8px 30px rgba(43,38,32,.10);
+  }
+  .login-title{font-size:22px;font-weight:900;margin-bottom:4px;}
+  .login-sub{color:var(--ink-soft);font-size:13px;margin:0 0 22px;}
+  .btn-block{width:100%;display:block;margin-bottom:10px;}
+  #login-form{text-align:right;}
+  #login-form label{display:block;font-size:13px;font-weight:700;margin-bottom:6px;}
+  #login-form input[type=password],#login-form input[type=text]{margin-bottom:10px;}
+  .login-role-note{
+    background:var(--surface-2);border:1px solid var(--line);border-radius:8px;
+    padding:8px 12px;font-size:13px;font-weight:700;margin-bottom:14px;text-align:center;
+  }
+  .show-pw{display:flex;align-items:center;gap:6px;font-weight:400;font-size:12px;margin:-4px 0 12px;}
+  .show-pw input{width:auto;}
+
+  /* ---- الترويسة ---- */
+  .hero{margin-bottom:18px;}
+  .hero-stub{
+    background:linear-gradient(180deg, var(--ink) 0%, #1F3B35 100%);
+    color:var(--accent-ink);border-radius:var(--radius);
+    padding:20px 22px 16px;position:relative;overflow:hidden;
+  }
+  .hero-stub::before{
+    content:"";position:absolute;inset:0;
+    background-image:repeating-linear-gradient(135deg, rgba(255,255,255,.04) 0 2px, transparent 2px 14px);
+    pointer-events:none;
+  }
+  .hero-top{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#D9C89C;flex-wrap:wrap;gap:8px;}
+  .hero-eyebrow{letter-spacing:.5px;font-weight:700;}
+  .hero-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .role-badge{
+    background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);
+    border-radius:20px;padding:3px 12px;font-weight:700;font-size:12px;white-space:nowrap;
+  }
+  #logout-btn{
+    font-family:inherit;font-size:12px;font-weight:700;color:var(--accent-ink);
+    background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.24);
+    border-radius:20px;padding:4px 14px;cursor:pointer;
+  }
+  .hero-title{font-size:26px;font-weight:900;margin:6px 0 14px;}
+  .hero-perf{border-top:2px dashed rgba(255,255,255,.25);margin:6px 0 14px;}
+  .hero-stats{display:flex;gap:10px;flex-wrap:wrap;}
+  .kpi{
+    background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);
+    border-radius:8px;padding:8px 14px;min-width:110px;
+  }
+  .kpi .n{font-size:20px;font-weight:900;display:block;}
+  .kpi .l{font-size:12px;color:#D9C89C;}
+  .kpi.alert-kpi{background:rgba(178,51,39,.35);border-color:rgba(178,51,39,.6);}
+  .kpi.out-kpi{background:rgba(185,162,118,.35);border-color:rgba(185,162,118,.65);}
+
+  /* ---- التبويبات ---- */
+  .tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--line);flex-wrap:wrap;}
+  .tab{
+    font-family:inherit;font-size:15px;font-weight:700;color:var(--ink-soft);
+    background:none;border:none;padding:12px 10px;cursor:pointer;border-bottom:3px solid transparent;
+  }
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+  .tab[hidden]{display:none;}
+  .tab-panel{display:none;}
+  .tab-panel.active{display:block;}
+
+  /* ---- البطاقات والنماذج ---- */
+  .card{
+    background:var(--surface);border:1px solid var(--line);
+    border-radius:var(--radius);padding:18px;margin-bottom:16px;
+  }
+  .card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:10px;flex-wrap:wrap;}
+  h2{font-size:16px;font-weight:700;margin:0;}
+  h3{font-size:14px;font-weight:700;margin:0 0 10px;color:var(--ink-soft);}
+  .count-badge{background:var(--surface-2);color:var(--ink-soft);font-size:12px;font-weight:700;border-radius:20px;padding:3px 10px;}
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;}
+  .field-wide{grid-column:1 / -1;}
+  .field label{display:block;font-size:13px;font-weight:700;margin-bottom:4px;}
+  .field small{display:block;color:var(--ink-soft);font-size:11px;margin-top:3px;}
+  input,textarea,select{
+    width:100%;font-family:inherit;font-size:16px;color:var(--ink);
+    background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:11px 12px;
+  }
+  input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-offset:1px;}
+  .form-actions{grid-column:1/-1;display:flex;gap:10px;align-items:center;margin-top:4px;flex-wrap:wrap;}
+  .btn-primary{
+    font-family:inherit;font-weight:700;font-size:15px;color:var(--accent-ink);
+    background:var(--accent);border:none;border-radius:8px;padding:12px 22px;cursor:pointer;min-height:44px;
+  }
+  .btn-primary:hover{filter:brightness(1.06);}
+  .btn-primary:disabled{opacity:.55;cursor:progress;}
+  .btn-sm{padding:10px 16px;font-size:14px;white-space:nowrap;min-height:40px;}
+  .btn-ghost{
+    font-family:inherit;font-weight:700;font-size:14px;color:var(--ink-soft);
+    background:none;border:1px solid var(--line);border-radius:8px;padding:11px 18px;cursor:pointer;min-height:44px;
+  }
+  .btn-danger{color:var(--alert);border-color:var(--alert);}
+  .form-error{
+    grid-column:1/-1;color:var(--alert);background:var(--alert-bg);border-radius:8px;
+    padding:9px 12px;font-size:13px;font-weight:700;margin:0;
+  }
+  .form-ok{
+    grid-column:1/-1;color:var(--ok);background:var(--ok-bg);border-radius:8px;
+    padding:9px 12px;font-size:13px;font-weight:700;margin:0;
+  }
+
+  /* ---- البحث ---- */
+  .search-wrap{position:relative;margin-bottom:14px;}
+  .search-wrap input{padding-inline-start:38px;font-size:16px;}
+  .search-wrap::before{
+    content:"⌕";position:absolute;inset-inline-start:13px;top:50%;transform:translateY(-52%);
+    font-size:20px;color:var(--ink-soft);pointer-events:none;
+  }
+  .search-meta{font-size:12px;color:var(--ink-soft);margin:-8px 0 10px;}
+  mark{background:var(--warn-bg);color:var(--ink);border-radius:3px;padding:0 2px;font-weight:900;}
+
+  /* ---- قائمة الخارج ---- */
+  .out-row{
+    display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;
+    padding:14px 0;border-bottom:1px dashed var(--line);
+  }
+  .out-row:last-child{border-bottom:none;}
+  .out-info .veh{font-weight:900;font-size:17px;}
+  .out-info .drv{font-weight:700;font-size:14px;}
+  .out-info .cust{color:var(--ink-soft);font-size:13px;}
+  .out-info .meta{color:var(--ink-soft);font-size:12px;margin-top:2px;}
+  .out-row.long-out .veh{color:var(--alert);}
+  .quick-return{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .quick-return input{width:auto;min-width:150px;}
+
+  /* ---- منتقي الوقت 12 ساعة ---- */
+  .time12{display:flex;gap:6px;align-items:center;}
+  .time12 select{width:auto;min-width:66px;}
+  .time12 input{width:74px;}
+  .t12-sep{font-weight:900;}
+
+  /* ---- الجداول ---- */
+  .table-wrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:14px;}
+  th,td{padding:9px 8px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap;}
+  th{font-size:12px;font-weight:700;color:var(--ink-soft);background:var(--surface-2);}
+  tr.is-out{background:#FBF1E9;}
+  tr.is-alert{background:var(--alert-bg);}
+  tr.is-warn{background:var(--warn-bg);}
+  .veh-cell{font-weight:700;}
+  .row-actions{display:flex;gap:6px;}
+  .btn-edit,.btn-delete{
+    font-family:inherit;font-size:12px;font-weight:700;border-radius:6px;
+    padding:5px 10px;cursor:pointer;background:none;
+  }
+  .btn-edit{color:var(--ink-soft);border:1px solid var(--line);}
+  .btn-delete{color:var(--alert);border:1px solid var(--alert);}
+  .badge{border-radius:20px;padding:2px 10px;font-size:12px;font-weight:700;display:inline-block;}
+  .badge-out{background:var(--warn-bg);color:var(--warn);}
+  .badge-ok{background:var(--ok-bg);color:var(--ok);}
+  .badge-alert{background:var(--alert-bg);color:var(--alert);}
+  .badge-warn{background:var(--warn-bg);color:var(--warn);}
+  .badge-pending{background:#E8DFF5;color:#5B3E8C;}
+  .out-row.pending{border-inline-start:3px solid #7B5AAF;padding-inline-start:10px;}
+  .empty{color:var(--ink-soft);font-size:14px;text-align:center;padding:18px 0;margin:0;}
+
+  .recent-item{display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px dashed var(--line);}
+  .recent-item:last-child{border-bottom:none;}
+  .recent-item .veh{font-weight:700;}
+  .recent-item .drv{font-size:13px;}
+  .recent-item .cust{color:var(--ink-soft);font-size:12px;}
+  .recent-item .side{text-align:left;font-size:13px;}
+
+  .pct-control{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;}
+  .pct-control label{font-size:13px;font-weight:700;}
+  .pct-control input{width:90px;}
+  .alert-row{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px dashed var(--line);font-size:13px;flex-wrap:wrap;}
+  .alert-row:last-child{border-bottom:none;}
+  .group{margin-bottom:18px;}
+  .group-head{display:flex;justify-content:space-between;gap:10px;font-weight:700;font-size:14px;
+    background:var(--surface-2);border-radius:8px;padding:8px 12px;margin-bottom:8px;flex-wrap:wrap;}
+  .group-head .total{color:var(--ink-soft);font-weight:400;font-size:12px;}
+
+  /* ---- نافذة التعديل ---- */
+  dialog{
+    border:1px solid var(--line);border-radius:var(--radius);padding:0;
+    max-width:620px;width:calc(100% - 32px);background:var(--surface);color:var(--ink);
+  }
+  dialog::backdrop{background:rgba(43,38,32,.5);}
+  .dialog-head{display:flex;justify-content:space-between;align-items:center;
+    padding:16px 18px;border-bottom:1px solid var(--line);}
+  .dialog-body{padding:18px;}
+  .dialog-close{font-family:inherit;font-size:20px;line-height:1;background:none;border:none;cursor:pointer;color:var(--ink-soft);}
+  .sep-block{grid-column:1/-1;border-top:1px dashed var(--line);padding-top:12px;margin-top:2px;}
+  .sep-block .hint{color:var(--ink-soft);font-size:12px;margin:0 0 10px;}
+
+  /* ---- شريط التنبيه ---- */
+  #toast{
+    position:fixed;inset-block-end:20px;inset-inline-start:50%;transform:translateX(50%);
+    background:var(--ink);color:var(--accent-ink);padding:12px 22px;border-radius:8px;
+    font-weight:700;font-size:14px;z-index:80;max-width:90vw;text-align:center;
+    box-shadow:0 6px 20px rgba(0,0,0,.25);
+  }
+  #toast[hidden]{display:none;}
+  #toast.err{background:var(--alert);}
+  #toast.ok{background:var(--ok);}
+
+  @media (max-width:640px){
+    .form-grid{grid-template-columns:1fr;}
+    .hero-title{font-size:22px;}
+    .out-row{flex-direction:column;align-items:stretch;}
+    .quick-return{flex-direction:column;align-items:stretch;}
+    .quick-return input,.quick-return .time12{width:100%;}
+    .time12 input{width:100%;}
+  }
+</style>
+</head>
+<body>
+
+<!-- ======================= شاشة الدخول ======================= -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-title">سجل بوابة المجبل</div>
+    <p class="login-sub">أدخل اسم المستخدم وكلمة المرور</p>
+
+    <form id="login-form">
+      <label for="login-username">اسم المستخدم</label>
+      <input type="text" id="login-username" autocomplete="username" autocapitalize="off" spellcheck="false">
+      <label for="login-password">كلمة المرور</label>
+      <input type="password" id="login-password" autocomplete="current-password" autocapitalize="off" spellcheck="false">
+      <label class="show-pw">
+        <input type="checkbox" id="login-show-pw"> إظهار كلمة المرور
+      </label>
+      <button type="submit" class="btn-primary btn-block" id="login-submit">دخول</button>
+      <p class="form-error" id="login-error" hidden></p>
+    </form>
+  </div>
+</div>
+
+<!-- ======================= التطبيق ======================= -->
+<div class="app" id="app-shell" hidden>
+
+  <header class="hero">
+    <div class="hero-stub">
+      <div class="hero-top">
+        <span class="hero-eyebrow">سجل بوابة المجبل</span>
+        <span class="hero-right">
+          <span id="today-date"></span>
+          <span class="role-badge" id="sync-status">—</span>
+          <span class="role-badge" id="role-badge"></span>
+          <button id="logout-btn">خروج</button>
+        </span>
+      </div>
+      <div class="hero-title">تسجيل حركة الآليات</div>
+      <div class="hero-perf"></div>
+      <div class="hero-stats" id="hero-stats"></div>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button class="tab" data-tab="entry" data-role="gate">تسجيل عملية</button>
+    <button class="tab" data-tab="vehicles" data-role="fleet_manager,admin">الآليات</button>
+    <button class="tab" data-tab="log" data-role="fleet_manager,admin">السجل الكامل</button>
+    <button class="tab" data-tab="reports" data-role="fleet_manager,admin">التقارير والتنبيهات</button>
+    <button class="tab" data-tab="users" data-role="admin">المستخدمون</button>
+  </nav>
+
+  <!-- ---------------- تبويب البوابة: تسجيل عملية ---------------- -->
+  <section class="tab-panel" id="tab-entry">
+
+    <div class="card">
+      <div class="card-head">
+        <h2>آليات في الخارج — تسجيل العودة</h2>
+        <span class="count-badge" id="out-count">0</span>
+      </div>
+
+      <!-- (4) البحث في الآليات الموجودة خارج المجبل -->
+      <div class="search-wrap">
+        <input type="search" id="out-search" inputmode="search"
+               placeholder="ابحث برقم الآلية أو اسم السائق أو الزبون…"
+               autocomplete="off" aria-label="بحث في الآليات الموجودة في الخارج">
+      </div>
+      <p class="search-meta" id="out-search-meta" hidden></p>
+
+      <div id="out-list"></div>
+    </div>
+
+    <!-- (1) بند العودة أُزيل من هذا النموذج — العودة تُسجَّل من القائمة أعلاه -->
+    <div class="card">
+      <div class="card-head"><h2>تسجيل مغادرة جديدة</h2></div>
+      <form id="entry-form" class="form-grid" novalidate>
+        <div class="field field-wide">
+          <label for="f-vehicle">الآلية (النوع والرقم)</label>
+          <input list="dl-vehicles" id="f-vehicle" placeholder="مثال: قلاب رقم 3" required>
+          <small>الآلية يجب أن تكون مسجّلة مسبقًا من حساب المدير في تبويب «الآليات»</small>
+        </div>
+        <div class="field">
+          <label for="f-driver">اسم السائق</label>
+          <input list="dl-drivers" id="f-driver" required>
+        </div>
+        <div class="field">
+          <label for="f-customer">اسم الزبون</label>
+          <input list="dl-customers" id="f-customer" required>
+        </div>
+        <div class="field">
+          <label>وقت المغادرة</label>
+          <div id="f-depart-wrap"></div>
+        </div>
+        <div class="field">
+          <label for="f-notes-out">ملاحظة الخروج</label>
+          <input type="text" id="f-notes-out" maxlength="300">
+        </div>
+        <p class="form-error" id="form-error" hidden></p>
+        <div class="form-actions">
+          <button type="submit" class="btn-primary" id="submit-btn">تسجيل المغادرة</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h3>آخر العمليات المسجلة</h3>
+      <div id="recent-list"></div>
+    </div>
+  </section>
+
+  <!-- ---------------- تبويب المدير: الآليات ---------------- -->
+  <section class="tab-panel" id="tab-vehicles">
+    <div class="card">
+      <div class="card-head"><h2 id="vehicle-form-title">تسجيل آلية جديدة</h2></div>
+      <form id="vehicle-form" class="form-grid" novalidate>
+        <input type="hidden" id="v-edit-id" value="">
+        <div class="field">
+          <label for="v-name">الآلية (النوع والرقم)</label>
+          <input id="v-name" placeholder="مثال: قلاب رقم 3" required>
+        </div>
+        <div class="field">
+          <label for="v-km">الكيلومتراج الحالي</label>
+          <input type="number" id="v-km" min="0" step="0.1" required>
+        </div>
+        <p class="form-error" id="vehicle-error" hidden></p>
+        <div class="form-actions">
+          <button type="submit" class="btn-primary" id="v-submit-btn">حفظ الآلية</button>
+          <button type="button" class="btn-ghost" id="v-cancel-edit" hidden>إلغاء</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>الآليات المسجّلة</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>الآلية</th><th>الحالة</th><th>كيلومتراج البداية</th><th>آخر قراءة</th><th>عدد العمليات</th><th></th></tr></thead>
+          <tbody id="vehicle-table-body"></tbody>
+        </table>
+      </div>
+      <p class="empty" id="vehicle-empty" hidden>لا توجد آليات مسجّلة بعد.</p>
+    </div>
+  </section>
+
+  <!-- ---------------- تبويب المدير: السجل ---------------- -->
+  <section class="tab-panel" id="tab-log">
+    <div class="card">
+      <div class="card-head">
+        <h2>السجل الكامل</h2>
+        <button class="btn-ghost btn-sm" id="export-csv">تصدير Excel (CSV)</button>
+      </div>
+      <div class="search-wrap">
+        <input type="search" id="log-search" inputmode="search"
+               placeholder="ابحث برقم الآلية أو السائق أو الزبون أو التاريخ…"
+               autocomplete="off" aria-label="بحث في السجل">
+      </div>
+      <p class="search-meta" id="log-search-meta" hidden></p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>الحالة</th><th>الآلية</th><th>السائق</th><th>الزبون</th><th>التاريخ</th>
+              <th>المغادرة</th><th>العودة</th><th>المدة</th>
+              <th>كم. العودة</th><th>المسافة</th><th>ملاحظات</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="log-table-body"></tbody>
+        </table>
+      </div>
+      <p class="empty" id="log-empty" hidden>لا توجد عمليات مسجلة بعد.</p>
+    </div>
+  </section>
+
+  <!-- ---------------- تبويب المدير: التقارير ---------------- -->
+  <section class="tab-panel" id="tab-reports">
+    <div class="card">
+      <h2>معايير التنبيه</h2>
+      <div class="pct-control">
+        <label for="pct-threshold">تجاوز في الوقت عن المتوسط بنسبة:</label>
+        <input type="number" id="pct-threshold" value="20" min="0" max="300"><span>%</span>
+      </div>
+      <div class="pct-control">
+        <label for="pct-threshold-dist">تجاوز في المسافة عن المتوسط بنسبة:</label>
+        <input type="number" id="pct-threshold-dist" value="20" min="0" max="300"><span>%</span>
+      </div>
+      <div id="alerts-panel"></div>
+    </div>
+    <div class="card"><h2>تقرير الآليات</h2><div id="report-vehicles"></div></div>
+    <div class="card"><h2>تقرير السائقين</h2><div id="report-drivers"></div></div>
+    <div class="card"><h2>تقرير الزبائن — مقارنة الآليات</h2><div id="report-customers"></div></div>
+  </section>
+
+  <!-- ---------------- تبويب الأدمن: المستخدمون ---------------- -->
+  <section class="tab-panel" id="tab-users">
+    <div class="card">
+      <div class="card-head"><h2 id="user-form-title">إضافة مستخدم جديد</h2></div>
+      <form id="user-form" class="form-grid" novalidate>
+        <input type="hidden" id="u-edit-id" value="">
+        <div class="field">
+          <label for="u-username">اسم المستخدم</label>
+          <input id="u-username" required>
+        </div>
+        <div class="field">
+          <label for="u-fullname">الاسم الكامل</label>
+          <input id="u-fullname">
+        </div>
+        <div class="field">
+          <label for="u-role">الدور</label>
+          <select id="u-role">
+            <option value="gate">البوابة</option>
+            <option value="fleet_manager">مدير الآليات</option>
+            <option value="fuel">المازوت</option>
+            <option value="fuel_warehouse_manager">مدير مستودع المازوت</option>
+            <option value="admin">أدمن</option>
+          </select>
+        </div>
+        <div class="field" id="u-password-field">
+          <label for="u-password">كلمة المرور</label>
+          <input type="password" id="u-password" autocomplete="new-password" minlength="6">
+          <small>6 محارف على الأقل</small>
+        </div>
+        <p class="form-error" id="user-error" hidden></p>
+        <div class="form-actions">
+          <button type="submit" class="btn-primary" id="u-submit-btn">حفظ المستخدم</button>
+          <button type="button" class="btn-ghost" id="u-cancel-edit" hidden>إلغاء</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>المستخدمون</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>اسم المستخدم</th><th>الاسم الكامل</th><th>الدور</th><th>الحالة</th><th></th></tr></thead>
+          <tbody id="user-table-body"></tbody>
+        </table>
+      </div>
+      <p class="empty" id="user-empty" hidden>لا يوجد مستخدمون بعد.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>نسخة احتياطية</h2>
+        <button class="btn-ghost btn-sm" id="backup-btn">إنشاء نسخة الآن</button>
+      </div>
+      <p class="search-meta" style="margin:0">
+        تُنشأ نسخة تلقائيًا كل 24 ساعة داخل مجلد <code>data/backups</code> على السيرفر، ويُحتفظ بآخر 60 نسخة.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>سجل التدقيق — آخر العمليات الحسّاسة</h2>
+        <button class="btn-ghost btn-sm" id="audit-refresh">تحديث</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>الوقت</th><th>المستخدم</th><th>الدور</th><th>الإجراء</th><th>الجهاز</th><th>التفاصيل</th></tr></thead>
+          <tbody id="audit-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <datalist id="dl-vehicles"></datalist>
+  <datalist id="dl-drivers"></datalist>
+  <datalist id="dl-customers"></datalist>
+</div>
+
+<!-- ---------------- نافذة تعديل العملية (المدير) ---------------- -->
+<dialog id="edit-dialog">
+  <div class="dialog-head">
+    <h2>تعديل عملية</h2>
+    <button class="dialog-close" id="edit-close" aria-label="إغلاق">✕</button>
+  </div>
+  <div class="dialog-body">
+    <form id="edit-form" class="form-grid" novalidate>
+      <input type="hidden" id="e-id">
+      <div class="field field-wide">
+        <label for="e-vehicle">الآلية</label>
+        <input list="dl-vehicles" id="e-vehicle" required>
+      </div>
+      <div class="field"><label for="e-driver">السائق</label><input list="dl-drivers" id="e-driver" required></div>
+      <div class="field"><label for="e-customer">الزبون</label><input list="dl-customers" id="e-customer" required></div>
+      <div class="field"><label for="e-date">تاريخ المغادرة</label><input type="date" id="e-date" required></div>
+      <div class="field"><label>وقت المغادرة</label><div id="e-depart-wrap"></div></div>
+      <div class="field field-wide"><label for="e-notes-out">ملاحظة الخروج</label><input type="text" id="e-notes-out" maxlength="300"></div>
+
+      <div class="sep-block form-grid" style="gap:12px 16px;">
+        <p class="hint field-wide">
+          بيانات العودة — اترك كيلومتراج العودة فارغًا لإعادة العملية إلى حالة «في الخارج».
+        </p>
+        <div class="field"><label for="e-return-date">تاريخ العودة</label><input type="date" id="e-return-date"></div>
+        <div class="field"><label>وقت العودة</label><div id="e-return-wrap"></div></div>
+        <div class="field"><label for="e-km">كيلومتراج العودة</label><input type="number" id="e-km" min="0" step="0.1"></div>
+        <div class="field"><label for="e-notes-in">ملاحظة العودة</label><input type="text" id="e-notes-in" maxlength="300"></div>
+      </div>
+
+      <p class="form-error" id="edit-error" hidden></p>
+      <div class="form-actions">
+        <button type="submit" class="btn-primary">حفظ التعديلات</button>
+        <button type="button" class="btn-ghost" id="edit-cancel">إلغاء</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+
+<div id="toast" hidden></div>
+
+<script>
+'use strict';
+
+/* ===================================================================
+   الحالة
+   =================================================================== */
+let entries  = [];
+let vehicles = [];
+let currentRole = null;        // gate | fleet_manager | fuel | admin | fuel_warehouse_manager
+let currentUsername = null;
+let openReturnId = null;
+let outSearch = '';
+let logSearch = '';
+let pollTimer = null;
+
+/* ===================================================================
+   أدوات مساعدة
+   =================================================================== */
+const $ = id => document.getElementById(id);
+
+function pad(n){ return String(n).padStart(2,'0'); }
+function todayKey(){ const d=new Date(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
+function nowTime(){ const d=new Date(); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+
+function escapeHtml(s){
+  return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// توحيد الأرقام العربية والفارسية إلى أرقام لاتينية حتى يعمل البحث
+// سواء كتب المستخدم "٣" أو "3".
+function normalizeSearch(s){
+  return String(s ?? '')
+    .replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, d => String(d.charCodeAt(0) - 0x06F0))
+    .replace(/[أإآ]/g,'ا').replace(/ى/g,'ي').replace(/ة/g,'ه')
+    .replace(/[ً-ْ]/g,'')
+    .toLowerCase().trim();
+}
+
+// هل يقصد المستخدم تاريخًا؟ «2026-08» أو «08-30» نعم؛ أما «30» وحده فهو رقم
+// آلية. بدون هذا التمييز يطابق البحث عن رقم آلية تاريخَ اليوم، فتظهر كل
+// عمليات اليوم عندما يوافق رقمُ اليوم رقمَ الآلية — أي في ثلث أيام الشهر.
+function looksLikeDate(term){
+  return /-/.test(term) || /^\d{4}/.test(term);
+}
+
+function matchesSearch(term, ...fields){
+  if(!term) return true;
+  const words = term.split(/\s+/).filter(Boolean);
+  const hay = fields.map(normalizeSearch).join(' ');
+  return words.every(w => hay.includes(w));
+}
+
+function highlight(text, term){
+  const safe = escapeHtml(text);
+  if(!term) return safe;
+  const words = term.split(/\s+/).filter(Boolean);
+  const norm = normalizeSearch(text);
+  // نُبرز أول كلمة مطابقة فقط — كافٍ بصريًا وأبسط من محاذاة كل الفروق.
+  for(const w of words){
+    const i = norm.indexOf(w);
+    if(i >= 0 && i < safe.length){
+      return escapeHtml(text.slice(0,i)) + '<mark>' + escapeHtml(text.slice(i, i+w.length)) +
+             '</mark>' + escapeHtml(text.slice(i+w.length));
+    }
+  }
+  return safe;
+}
+
+let toastTimer = null;
+function toast(message, kind){
+  const el = $('toast');
+  el.textContent = message;
+  el.className = kind || '';
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>{ el.hidden = true; }, kind === 'err' ? 6000 : 3200);
+}
+
+function fmtDuration(min){
+  if(min===null || min===undefined || isNaN(min)) return '—';
+  const h = Math.floor(Math.abs(min)/60), m = Math.abs(min)%60;
+  return `${min<0?'-':''}${h} س ${m} د`;
+}
+// `entry` اختياري: حين تنكسر سلسلة العدّاد نُسمّي السبب بدل «غير متاحة»
+// المبهمة، وإلا ظنّ المدير أن البيانات ناقصة بلا سبب.
+function fmtDistance(km, entry){
+  if(km===null || km===undefined || isNaN(km)){
+    return (entry && entry._chainBroken) ? 'العدّاد أقل من السابق' : 'غير متاحة';
+  }
+  return km.toFixed(1) + ' كم';
+}
+function fmtTime12(hhmm){
+  if(!hhmm) return '—';
+  const [H,M] = hhmm.split(':').map(Number);
+  const ap = H>=12 ? 'م' : 'ص';
+  let h = H%12; if(h===0) h=12;
+  return `${h}:${pad(M)} ${ap}`;
+}
+
+/* ---- منتقي وقت 12 ساعة (يُخزَّن دائمًا 24 ساعة "HH:MM") ---- */
+function hhmmTo12(hhmm){
+  if(!hhmm) return {h:'1', m:'00', ap:'ص'};
+  const [H,M] = hhmm.split(':').map(Number);
+  const ap = H>=12 ? 'م' : 'ص';
+  let h12 = H%12; if(h12===0) h12=12;
+  return {h:String(h12), m:pad(M), ap};
+}
+function to24(h12,m,ap){
+  let h = parseInt(h12,10); if(isNaN(h)) h=12;
+  let mm = parseInt(m,10); if(isNaN(mm)) mm=0;
+  mm = Math.min(59, Math.max(0, mm));
+  if(ap==='م'){ if(h!==12) h+=12; } else { if(h===12) h=0; }
+  return pad(h)+':'+pad(mm);
+}
+function timeGroupHTML(prefix, defaultHHMM){
+  const {h,m,ap} = hhmmTo12(defaultHHMM || nowTime());
+  let hOpts='';
+  for(let i=1;i<=12;i++) hOpts+=`<option value="${i}" ${String(i)===h?'selected':''}>${i}</option>`;
+  return `<div class="time12">
+    <select id="${prefix}-h" aria-label="الساعة">${hOpts}</select>
+    <span class="t12-sep">:</span>
+    <input type="number" id="${prefix}-m" min="0" max="59" value="${m}" aria-label="الدقيقة">
+    <select id="${prefix}-ap" aria-label="صباحًا أو مساءً">
+      <option value="ص" ${ap==='ص'?'selected':''}>ص</option>
+      <option value="م" ${ap==='م'?'selected':''}>م</option>
+    </select>
+  </div>`;
+}
+function getTimeGroup(prefix){
+  const eh=$(`${prefix}-h`), em=$(`${prefix}-m`), ea=$(`${prefix}-ap`);
+  if(!eh) return '';
+  return to24(eh.value, em.value, ea.value);
+}
+
+/* ===================================================================
+   الاتصال بالسيرفر
+   =================================================================== */
+function setSyncStatus(state, text){
+  const el = $('sync-status');
+  if(!el) return;
+  const pending = outbox.length;
+  // عدد المعلّق أهم من حالة الاتصال نفسها: الحارس يحتاج أن يعرف أن ما سجّله
+  // لم يُرفع بعد، لا أن «الشبكة مقطوعة» فحسب.
+  if(pending){
+    el.textContent = `${pending} بانتظار الإرسال`;
+    el.style.color = '#E9D6A0';
+    return;
+  }
+  if(state==='ok'){ el.textContent='متصل ✓'; el.style.color='#BFE0D6'; }
+  else if(state==='busy'){ el.textContent='مزامنة…'; el.style.color='#D9C89C'; }
+  else { el.textContent = text || 'لا يوجد اتصال بالسيرفر'; el.style.color='#F2B8AE'; }
+}
+
+/* ===================================================================
+   صندوق الصادر — العمل أثناء انقطاع الشبكة
+   ===================================================================
+   شبكة البوابة تنقطع لدقيقة أحيانًا، والشاحنة لا تنتظر. فبدل أن يفشل
+   التسجيل، يُحفظ محليًا ويُرفع تلقائيًا عند عودة الاتصال.
+
+   مفتاح التعريف (clientRef) هو ما يجعل إعادة الإرسال آمنة: لو كان الطلب
+   الأول قد وصل الخادم فعلًا وضاع الرد فقط، يتعرّف الخادم على المفتاح
+   ويُرجع السجل الأصلي بدل إنشاء رحلة مكررة.
+   =================================================================== */
+
+const OUTBOX_KEY = 'gate-log-outbox';
+let outbox = [];
+let syncing = false;
+
+function makeRef(){
+  return (crypto.randomUUID ? crypto.randomUUID()
+    : 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2,10));
+}
+
+function loadOutbox(){
+  try{
+    const raw = localStorage.getItem(OUTBOX_KEY);
+    outbox = raw ? JSON.parse(raw) : [];
+    if(!Array.isArray(outbox)) outbox = [];
+  }catch(err){ outbox = []; }
+}
+
+function saveOutbox(){
+  try{ localStorage.setItem(OUTBOX_KEY, JSON.stringify(outbox)); }
+  catch(err){
+    // التخزين ممتلئ أو محظور — نُنبّه بوضوح بدل الفشل الصامت.
+    toast('تعذّر حفظ العملية محليًا. لا تغلق الصفحة قبل عودة الاتصال.', 'err');
+  }
+}
+
+function queueOperation(op){
+  op.ref = op.ref || makeRef();
+  op.queuedAt = new Date().toISOString();
+  op.attempts = 0;
+  outbox.push(op);
+  saveOutbox();
+  setSyncStatus('error');
+}
+
+// العمليات المعلّقة تظهر في قائمة الخارج فورًا، وإلا ظنّ الحارس أن التسجيل
+// لم يحدث فأعاده — فنشأت رحلة مكررة حقيقية.
+function pendingEntries(){
+  return outbox.filter(o => o.kind === 'depart').map(o => ({
+    id: 'pending:' + o.ref,
+    dateKey: o.body.dateKey, vehicle: o.body.vehicle, driver: o.body.driver,
+    customer: o.body.customer, departTime: o.body.departTime,
+    notesOut: o.body.notesOut || '', returnDate: null, returnTime: null,
+    km: null, notesIn: '', status: 'out',
+    createdAt: o.queuedAt, updatedAt: o.queuedAt,
+    _pending: true
+  }));
+}
+
+// عودة معلّقة تُخفي عمليتها من قائمة الخارج، وإلا سجّلها الحارس مرة أخرى.
+function pendingReturnIds(){
+  return new Set(outbox.filter(o => o.kind === 'return').map(o => o.entryId));
+}
+
+/**
+ * يرفع ما في الصندوق بالترتيب. يتوقّف عند أول فشل شبكي فيبقي الباقي للمحاولة
+ * القادمة، أما الرفض النهائي من الخادم (4xx) فيُزال ويُعرض على المستخدم —
+ * لأن إعادة محاولته إلى الأبد بلا فائدة.
+ */
+async function flushOutbox(){
+  if(syncing || !outbox.length || !currentRole) return;
+  syncing = true;
+  const rejected = [];
+  // ربط المعرّف المؤقّت للمغادرة بالمعرّف الحقيقي بعد رفعها، حتى تجد عودتها
+  // التي تليها في الطابور العمليةَ الصحيحة على الخادم.
+  const refToId = {};
+
+  try{
+    while(outbox.length){
+      const op = outbox[0];
+      let target = op.entryId;
+      if(op.kind === 'return' && String(target||'').startsWith('pending:')){
+        const ref = String(target).slice('pending:'.length);
+        target = refToId[ref];
+        if(!target){
+          // مغادرتها لم تُرفع (رُفضت أو فُقدت) — لا وجهة لهذه العودة.
+          outbox.shift(); saveOutbox();
+          rejected.push({ op, message: 'لم تُرفع مغادرتها، فتعذّر ربط العودة بها.' });
+          continue;
+        }
+      }
+      const path = op.kind === 'depart'
+        ? '/api/entries'
+        : `/api/entries/${target}/return`;
+      try{
+        const out = await api('POST', path, Object.assign({ clientRef: op.ref }, op.body), true);
+        if(op.kind === 'depart' && out && out.entry) refToId[op.ref] = out.entry.id;
+        outbox.shift();
+        saveOutbox();
+      }catch(err){
+        if(err.offline){ break; }           // الشبكة ما زالت مقطوعة — نتوقّف
+        if(err.status && err.status >= 400 && err.status < 500){
+          outbox.shift();
+          saveOutbox();
+          rejected.push({ op, message: err.message });
+          continue;                          // رفض نهائي — لا فائدة من التكرار
+        }
+        break;                               // خطأ خادم مؤقّت — نُعيد لاحقًا
+      }
+    }
+  } finally {
+    syncing = false;
+  }
+
+  if(rejected.length){
+    const first = rejected[0];
+    const what = first.op.kind === 'depart'
+      ? `مغادرة ${first.op.body.vehicle}`
+      : 'تسجيل عودة';
+    toast(`تعذّر حفظ ${what}: ${first.message}` +
+          (rejected.length > 1 ? ` (و${rejected.length - 1} أخرى)` : ''), 'err');
+  }
+  if(currentRole){ try{ await refresh(); render(); }catch(err){ /* لاحقًا */ } }
+}
+
+/**
+ * كل نداءات الـ API تمر من هنا: ترسل كوكي الجلسة، وتحوّل أي خطأ من السيرفر
+ * إلى استثناء يحمل الرسالة العربية الحقيقية بدل انهيار صامت.
+ */
+async function api(method, path, body, isSync){
+  let res;
+  try{
+    res = await fetch(path, {
+      method,
+      credentials: 'same-origin',
+      headers: body ? {'Content-Type':'application/json'} : undefined,
+      body: body ? JSON.stringify(body) : undefined
+    });
+  }catch(err){
+    setSyncStatus('error');
+    // نُميّز فشل الشبكة عن رفض الخادم: الأول يستحق إعادة المحاولة، والثاني لا.
+    const e = new Error('تعذّر الوصول إلى السيرفر. تأكّد من الاتصال بالشبكة.');
+    e.offline = true;
+    throw e;
+  }
+  if(res.status === 401 && currentRole){
+    handleSessionExpired();
+    throw new Error('انتهت الجلسة.');
+  }
+  const text = await res.text();
+  let data = {};
+  try{ data = text ? JSON.parse(text) : {}; }catch(err){ data = {}; }
+  if(!res.ok){
+    const e = new Error(data.error || `خطأ من السيرفر (${res.status})`);
+    e.status = res.status;
+    throw e;
+  }
+  setSyncStatus('ok');
+  return data;
+}
+
+function handleSessionExpired(){
+  stopPolling();
+  currentRole = null;
+  $('app-shell').hidden = true;
+  $('login-screen').style.display = 'flex';
+  showLoginChooser();
+  toast('انتهت مدة الجلسة. الرجاء تسجيل الدخول من جديد.', 'err');
+}
+
+async function refresh(){
+  setSyncStatus('busy');
+  const data = await api('GET', '/api/state');
+  entries  = data.entries;
+  vehicles = data.vehicles;
+  if(data.role && data.role !== currentRole){ currentRole = data.role; applyRoleUI(); }
+}
+
+/**
+ * ما يراه المستخدم: بيانات الخادم + العمليات المعلّقة محليًا، ناقصًا ما
+ * سُجّلت عودته محليًا ولم تُرفع بعد. بدون هذا الدمج يختفي ما سجّله الحارس
+ * أثناء الانقطاع، فيُعيد تسجيله ظنًّا أنه ضاع.
+ */
+function allEntries(){
+  const closing = pendingReturnIds();
+  const merged = entries.map(e => closing.has(e.id)
+    ? Object.assign({}, e, { status:'done', _pendingReturn:true })
+    : e);
+  return merged.concat(
+    pendingEntries().filter(e => !closing.has(e.id))
+  );
+}
+
+function startPolling(){
+  stopPolling();
+  pollTimer = setInterval(async ()=>{
+    if(document.hidden) return;
+    if($('edit-dialog').open) return;                    // لا نقاطع تعديلًا جاريًا
+    if(openReturnId) return;                             // ولا إدخال عودة مفتوحًا
+    // رفع المعلّق أولًا: بيانات الخادم بلا سجلاتنا المعلّقة صورة ناقصة.
+    if(outbox.length){ await flushOutbox(); return; }
+    try{ await refresh(); render(); }
+    catch(err){ /* الشارة تعرض حالة الاتصال؛ لا نزعج المستخدم بنافذة */ }
+  }, 8000);
+
+  // المتصفح يُعلمنا بعودة الشبكة قبل دورة الاستطلاع التالية.
+  window.addEventListener('online', onBackOnline);
+}
+async function onBackOnline(){
+  if(!currentRole) return;
+  setSyncStatus('busy');
+  await flushOutbox();
+}
+function stopPolling(){
+  if(pollTimer){ clearInterval(pollTimer); pollTimer=null; }
+  window.removeEventListener('online', onBackOnline);
+}
+
+/* ===================================================================
+   حسابات المدة والمسافة
+   =================================================================== */
+function getDepartDateTime(e){ return new Date(`${e.dateKey}T${e.departTime}:00`); }
+
+function getReturnDateTime(e){
+  if(!e.returnTime) return null;
+  // تاريخ العودة يُخزَّن الآن صراحةً، فلا نخمّن عبور منتصف الليل.
+  if(e.returnDate) return new Date(`${e.returnDate}T${e.returnTime}:00`);
+  const dep = getDepartDateTime(e);
+  const ret = new Date(`${e.dateKey}T${e.returnTime}:00`);
+  if(ret < dep) ret.setDate(ret.getDate()+1);
+  return ret;
+}
+
+function getBaseline(vehicleName){
+  const v = vehicles.find(x=> x.name.trim() === String(vehicleName).trim());
+  return v ? v.baselineKm : null;
+}
+
+function lastKnownKm(name){
+  const list = entries.filter(e=> e.status==='done' && e.km!==null && (e.vehicle||'').trim()===String(name).trim());
+  if(!list.length) return null;
+  list.sort((a,b)=> getDepartDateTime(b)-getDepartDateTime(a));
+  return list[0].km;
+}
+
+function enrichEntries(){
+  const byVehicle = {};
+  entries.filter(e=>e.status==='done').forEach(e=>{
+    const k=(e.vehicle||'').trim();
+    (byVehicle[k] = byVehicle[k] || []).push(e);
+  });
+  Object.entries(byVehicle).forEach(([name, list])=>{
+    list.sort((a,b)=> getDepartDateTime(a)-getDepartDateTime(b));
+    list.forEach((e,i)=>{
+      // نقطة المرجع: كيلومتراج التسجيل لأول رحلة، ثم قراءة الرحلة السابقة.
+      const ref = (i===0) ? getBaseline(name) : list[i-1].km;
+
+      // العدّاد لا ينقص. نقصانه يعني استبدال العدّاد أو دورانه أو خطأ إدخال —
+      // وفي كل الحالات انكسرت السلسلة ولا سبيل لمعرفة مسافة هذه الرحلة، لأننا
+      // لا نعرف القراءة الأخيرة للعدّاد القديم. الصواب أن نقول «غير متاحة»
+      // لا أن نطرح فنُخرج رقمًا سالبًا يُفسد إجمالي الآلية ويولّد تنبيهات
+      // كاذبة على الرحلات الصحيحة. الرحلات التالية تُحسب طبيعيًا من القراءة
+      // الجديدة، فتصلح السلسلة نفسها تلقائيًا.
+      e._distance = (ref !== null && ref !== undefined && !isNaN(ref) && e.km >= ref)
+        ? (e.km - ref)
+        : null;
+      e._chainBroken = (ref !== null && ref !== undefined && !isNaN(ref) && e.km < ref);
+      const ret = getReturnDateTime(e);
+      e._durationMin = ret ? Math.round((ret - getDepartDateTime(e))/60000) : null;
+    });
+  });
+}
+
+function alertIdsBy(metric, pct){
+  const done = entries.filter(e=> e.status==='done' && e[metric]!==null && e[metric]!==undefined && !isNaN(e[metric]));
+  const byCustomer = {};
+  done.forEach(e=>{ const k=(e.customer||'').trim(); (byCustomer[k]=byCustomer[k]||[]).push(e); });
+  const ids = new Set();
+  Object.values(byCustomer).forEach(list=>{
+    if(list.length < 2) return;
+    const avg = list.reduce((s,e)=> s+e[metric], 0) / list.length;
+    const threshold = avg * (1 + pct/100);
+    list.forEach(e=>{ if(e[metric] > threshold) ids.add(e.id); });
+  });
+  return ids;
+}
+
+/* ===================================================================
+   العرض
+   =================================================================== */
+function uniqueSorted(field){
+  return [...new Set(entries.map(e=>(e[field]||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'));
+}
+
+function renderDatalists(){
+  $('dl-vehicles').innerHTML  = vehicles.map(v=>`<option value="${escapeHtml(v.name)}">`).join('');
+  $('dl-drivers').innerHTML   = uniqueSorted('driver').map(v=>`<option value="${escapeHtml(v)}">`).join('');
+  $('dl-customers').innerHTML = uniqueSorted('customer').map(v=>`<option value="${escapeHtml(v)}">`).join('');
+}
+
+function renderHero(alertUnionSize){
+  const tk = todayKey();
+  $('today-date').textContent = new Date().toLocaleDateString('ar-EG', {weekday:'long', day:'2-digit', month:'long', year:'numeric'});
+  const src = allEntries();
+  const tripsToday = src.filter(e=>e.dateKey===tk).length;
+  const outNow = src.filter(e=>e.status==='out').length;
+
+  const cards = [
+    `<div class="kpi"><span class="n">${tripsToday}</span><span class="l">عمليات اليوم</span></div>`,
+    `<div class="kpi out-kpi"><span class="n">${outNow}</span><span class="l">في الخارج الآن</span></div>`
+  ];
+  if(currentRole === 'fleet_manager' || currentRole === 'admin'){
+    const customers = new Set(entries.map(e=>(e.customer||'').trim()).filter(Boolean)).size;
+    cards.push(`<div class="kpi"><span class="n">${customers}</span><span class="l">زبون</span></div>`);
+    cards.push(`<div class="kpi alert-kpi"><span class="n">${alertUnionSize}</span><span class="l">تنبيهات نشطة</span></div>`);
+  }else{
+    cards.push(`<div class="kpi"><span class="n">${vehicles.length}</span><span class="l">آلية مسجّلة</span></div>`);
+  }
+  $('hero-stats').innerHTML = cards.join('');
+}
+
+function renderOutList(){
+  const box = $('out-list');
+  const all = allEntries().filter(e=>e.status==='out').sort((a,b)=> getDepartDateTime(a)-getDepartDateTime(b));
+  $('out-count').textContent = all.length;
+
+  const term = normalizeSearch(outSearch);
+  // قائمة الخارج تُبحث بالآلية والسائق والزبون والملاحظة فقط. التواريخ
+  // والأوقات مستبعدة عمدًا: كل ما في القائمة «في الخارج الآن»، فلا معنى
+  // للبحث فيها بتاريخ، وإدراجه يُنتج مطابقات كاذبة برقم اليوم.
+  const shown = all.filter(e=> matchesSearch(term, e.vehicle, e.driver, e.customer, e.notesOut));
+
+  const meta = $('out-search-meta');
+  if(term){
+    meta.hidden = false;
+    meta.textContent = shown.length
+      ? `${shown.length} من ${all.length} آلية مطابقة للبحث`
+      : `لا توجد نتيجة ضمن ${all.length} آلية في الخارج`;
+  }else{
+    meta.hidden = true;
+  }
+
+  if(!all.length){ box.innerHTML = '<p class="empty">لا توجد آليات في الخارج حالياً.</p>'; return; }
+  if(!shown.length){ box.innerHTML = '<p class="empty">لا توجد آلية مطابقة. جرّب رقم الآلية وحده.</p>'; return; }
+
+  box.innerHTML = shown.map(e=>{
+    const elapsedMin = Math.round((Date.now() - getDepartDateTime(e))/60000);
+    const isOpen = openReturnId === e.id;
+    const longOut = elapsedMin > 12*60;   // خارج منذ أكثر من 12 ساعة
+    const lastKm = lastKnownKm(e.vehicle) ?? getBaseline(e.vehicle);
+    return `
+      <div class="out-row ${longOut?'long-out':''} ${e._pending?'pending':''}">
+        <div class="out-info">
+          <div class="veh">${highlight(e.vehicle, term)}${
+            e._pending ? ' <span class="badge badge-pending">بانتظار الإرسال</span>' : ''}</div>
+          <div class="drv">${highlight(e.driver, term)}</div>
+          <div class="cust">${highlight(e.customer, term)}</div>
+          <div class="meta">غادر ${fmtTime12(e.departTime)} · ${e.dateKey} · خارج منذ ${fmtDuration(elapsedMin)}${
+            e.notesOut ? ' · ' + escapeHtml(e.notesOut) : ''}</div>
+        </div>
+        ${isOpen ? `
+          <div class="quick-return">
+            ${timeGroupHTML('qr-'+e.id, nowTime())}
+            <input type="number" id="qr-km-${e.id}" placeholder="${lastKm!==null?'آخر قراءة '+lastKm:'كيلومتراج العودة'}"
+                   min="0" step="0.1" aria-label="كيلومتراج العودة">
+            <input type="text" id="qr-note-${e.id}" placeholder="ملاحظة (اختياري)" maxlength="300" aria-label="ملاحظة العودة">
+            <button class="btn-primary btn-sm" data-confirm="${e.id}">تأكيد العودة</button>
+            <button class="btn-ghost btn-sm" data-cancel="${e.id}">إلغاء</button>
+          </div>
+        ` : `<button class="btn-primary btn-sm" data-open="${e.id}">تسجيل العودة</button>`}
+      </div>`;
+  }).join('');
+
+  if(openReturnId && shown.some(e=>e.id===openReturnId)){
+    const km = $('qr-km-'+openReturnId);
+    if(km) km.focus();
+  }
+}
+
+function renderRecent(){
+  const box = $('recent-list');
+  const recent = [...allEntries()].sort((a,b)=> getDepartDateTime(b)-getDepartDateTime(a)).slice(0,5);
+  if(!recent.length){ box.innerHTML = '<p class="empty">لم تُسجَّل أي عملية بعد.</p>'; return; }
+  box.innerHTML = recent.map(e=>{
+    const side = e.status==='out'
+      ? '<span class="badge badge-out">في الخارج</span>'
+      : `${fmtDuration(e._durationMin)}<br>${fmtDistance(e._distance, e)}`;
+    return `<div class="recent-item">
+      <div>
+        <div class="veh">${escapeHtml(e.vehicle)}</div>
+        <div class="drv">${escapeHtml(e.driver)}</div>
+        <div class="cust">${escapeHtml(e.customer)}</div>
+      </div>
+      <div class="side">${side}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderLogTable(timeIds, distIds){
+  $('export-csv').hidden = !canEditFleet();
+  const term = normalizeSearch(logSearch);
+  const all = [...entries].sort((a,b)=> getDepartDateTime(b)-getDepartDateTime(a));
+  // في السجل الكامل البحث بالتاريخ مفيد فعلًا، لكن فقط حين يبدو الطلب تاريخًا.
+  const sorted = all.filter(e=> matchesSearch(term,
+    e.vehicle, e.driver, e.customer, e.notesOut, e.notesIn,
+    looksLikeDate(term) ? e.dateKey : ''));
+
+  const meta = $('log-search-meta');
+  if(term){ meta.hidden = false; meta.textContent = `${sorted.length} من ${all.length} عملية`; }
+  else { meta.hidden = true; }
+
+  $('log-empty').hidden = sorted.length > 0;
+  $('log-table-body').innerHTML = sorted.map(e=>{
+    const tAlert = timeIds.has(e.id), dAlert = distIds.has(e.id);
+    const rowClass = e.status==='out' ? 'is-out' : (tAlert ? 'is-alert' : (dAlert ? 'is-warn' : ''));
+    return `<tr class="${rowClass}">
+      <td>${e.status==='out' ? '<span class="badge badge-out">في الخارج</span>' : '<span class="badge badge-ok">مكتملة</span>'}</td>
+      <td class="veh-cell">${highlight(e.vehicle, term)}</td>
+      <td>${highlight(e.driver, term)}</td>
+      <td>${highlight(e.customer, term)}</td>
+      <td>${e.dateKey}</td>
+      <td>${fmtTime12(e.departTime)}</td>
+      <td>${e.returnTime ? fmtTime12(e.returnTime) : '—'}</td>
+      <td>${e.status==='done' ? fmtDuration(e._durationMin) + (tAlert?' ⏱️⚠️':'') : 'قيد التنفيذ'}</td>
+      <td>${e.km ?? '—'}</td>
+      <td>${e.status==='done' ? fmtDistance(e._distance, e) + (dAlert?' 📏⚠️':'') : '—'}</td>
+      <td>${escapeHtml([e.notesOut, e.notesIn].filter(Boolean).join(' / '))}</td>
+      <td class="row-actions">${canEditFleet() ? `
+        <button class="btn-edit" data-id="${e.id}">تعديل</button>
+        <button class="btn-delete" data-id="${e.id}">حذف</button>` : ''}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderVehiclesTab(){
+  $('vehicle-form').closest('.card').hidden = !canEditFleet();
+  const sorted = [...vehicles].sort((a,b)=> a.name.localeCompare(b.name,'ar'));
+  $('vehicle-empty').hidden = sorted.length > 0;
+  $('vehicle-table-body').innerHTML = sorted.map(v=>{
+    const out = entries.find(e=> e.status==='out' && (e.vehicle||'').trim()===v.name.trim());
+    const last = lastKnownKm(v.name);
+    const count = entries.filter(e=> (e.vehicle||'').trim()===v.name.trim()).length;
+    return `<tr class="${out?'is-out':''}">
+      <td class="veh-cell">${escapeHtml(v.name)}</td>
+      <td>${out ? '<span class="badge badge-out">في الخارج</span>' : '<span class="badge badge-ok">في المجبل</span>'}</td>
+      <td>${v.baselineKm}</td>
+      <td>${last !== null ? last : '—'}</td>
+      <td>${count}</td>
+      <td class="row-actions">${canEditFleet() ? `
+        <button class="btn-edit" data-id="${v.id}">تعديل</button>
+        <button class="btn-delete" data-id="${v.id}">حذف</button>` : ''}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderReports(timeIds, distIds){
+  const done = entries.filter(e=>e.status==='done');
+
+  const union = done.filter(e=> timeIds.has(e.id) || distIds.has(e.id))
+                    .sort((a,b)=> getDepartDateTime(b)-getDepartDateTime(a));
+  $('alerts-panel').innerHTML = union.length===0
+    ? '<p class="empty">لا توجد رحلات متجاوزة حالياً ضمن النسب المحددة.</p>'
+    : union.map(e=>{
+        const tags = [];
+        if(timeIds.has(e.id)) tags.push('<span class="badge badge-alert">تجاوز وقت</span>');
+        if(distIds.has(e.id)) tags.push('<span class="badge badge-warn">تجاوز مسافة</span>');
+        return `<div class="alert-row">
+          <span>${escapeHtml(e.vehicle)} — ${escapeHtml(e.driver)} — ${escapeHtml(e.customer)} ${tags.join(' ')}</span>
+          <span>${fmtDuration(e._durationMin)} · ${fmtDistance(e._distance, e)} (${e.dateKey} ${fmtTime12(e.departTime)})</span>
+        </div>`;
+      }).join('');
+
+  const groupBy = (field) => {
+    const g = {};
+    done.forEach(e=>{ const k=(e[field]||'').trim(); (g[k]=g[k]||[]).push(e); });
+    return g;
+  };
+
+  const simpleReport = (boxId, field, otherCol, otherField) => {
+    const g = groupBy(field);
+    const keys = Object.keys(g).sort((a,b)=>a.localeCompare(b,'ar'));
+    $(boxId).innerHTML = keys.length===0 ? '<p class="empty">لا توجد عمليات مكتملة بعد.</p>' : keys.map(key=>{
+      const list = g[key].sort((a,b)=> getDepartDateTime(a)-getDepartDateTime(b));
+      const totalDist = list.reduce((s,e)=> s + (e._distance||0), 0);
+      const avgDur = list.reduce((s,e)=> s + (e._durationMin||0), 0) / list.length;
+      const rows = list.map(e=>`
+        <tr class="${timeIds.has(e.id)?'is-alert':(distIds.has(e.id)?'is-warn':'')}">
+          <td>${e.dateKey}</td><td>${fmtTime12(e.departTime)}</td>
+          <td>${escapeHtml(e[otherField])}</td><td>${escapeHtml(e.customer)}</td>
+          <td>${fmtDuration(e._durationMin)} ${timeIds.has(e.id)?'⏱️⚠️':''}</td>
+          <td>${fmtDistance(e._distance, e)} ${distIds.has(e.id)?'📏⚠️':''}</td>
+        </tr>`).join('');
+      return `<div class="group">
+        <div class="group-head"><span>${escapeHtml(key)}</span>
+        <span class="total">${list.length} عملية · متوسط المدة ${fmtDuration(Math.round(avgDur))} · إجمالي المسافة ${totalDist.toFixed(1)} كم</span></div>
+        <div class="table-wrap"><table><thead><tr>
+          <th>التاريخ</th><th>المغادرة</th><th>${otherCol}</th><th>الزبون</th><th>المدة</th><th>المسافة</th>
+        </tr></thead><tbody>${rows}</tbody></table></div></div>`;
+    }).join('');
+  };
+
+  simpleReport('report-vehicles', 'vehicle', 'السائق', 'driver');
+  simpleReport('report-drivers',  'driver',  'الآلية', 'vehicle');
+
+  const byCustomer = groupBy('customer');
+  const cKeys = Object.keys(byCustomer).sort((a,b)=>a.localeCompare(b,'ar'));
+  $('report-customers').innerHTML = cKeys.length===0 ? '<p class="empty">لا توجد عمليات مكتملة بعد.</p>' : cKeys.map(key=>{
+    const list = byCustomer[key];
+    const avgDur = list.reduce((s,e)=> s+(e._durationMin||0), 0)/list.length;
+    const valid = list.filter(e=> e._distance!==null && !isNaN(e._distance));
+    const avgDist = valid.length ? valid.reduce((s,e)=>s+e._distance,0)/valid.length : null;
+    const byVeh = {};
+    list.forEach(e=>{
+      const vk=(e.vehicle||'').trim();
+      const s = byVeh[vk] = byVeh[vk] || {trips:0,durSum:0,distSum:0,tAlerts:0,dAlerts:0};
+      s.trips++; s.durSum += (e._durationMin||0); s.distSum += (e._distance||0);
+      if(timeIds.has(e.id)) s.tAlerts++;
+      if(distIds.has(e.id)) s.dAlerts++;
+    });
+    const rows = Object.entries(byVeh).map(([vk,s])=>`
+      <tr><td class="veh-cell">${escapeHtml(vk)}</td><td>${s.trips}</td>
+        <td>${fmtDuration(Math.round(s.durSum/s.trips))}</td><td>${s.distSum.toFixed(1)} كم</td>
+        <td>${s.tAlerts>0?`<span class="badge badge-alert">${s.tAlerts}</span>`:'<span class="badge badge-ok">0</span>'}</td>
+        <td>${s.dAlerts>0?`<span class="badge badge-warn">${s.dAlerts}</span>`:'<span class="badge badge-ok">0</span>'}</td>
+      </tr>`).join('');
+    return `<div class="group">
+      <div class="group-head"><span>${escapeHtml(key)}</span>
+      <span class="total">${list.length} عملية · متوسط المدة ${fmtDuration(Math.round(avgDur))} · متوسط المسافة ${avgDist!==null?avgDist.toFixed(1)+' كم':'—'}</span></div>
+      <div class="table-wrap"><table><thead><tr>
+        <th>الآلية</th><th>عدد الرحلات</th><th>متوسط المدة</th><th>إجمالي المسافة</th><th>تجاوز وقت</th><th>تجاوز مسافة</th>
+      </tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  }).join('');
+}
+
+function canEditFleet(){ return currentRole === 'fleet_manager'; }
+
+function render(){
+  enrichEntries();
+  let timeIds = new Set(), distIds = new Set();
+  if(currentRole === 'fleet_manager' || currentRole === 'admin'){
+    timeIds = alertIdsBy('_durationMin', Number($('pct-threshold').value || 20));
+    distIds = alertIdsBy('_distance',    Number($('pct-threshold-dist').value || 20));
+  }
+  renderHero(new Set([...timeIds, ...distIds]).size);
+  renderDatalists();
+
+  if(currentRole === 'gate'){
+    renderOutList();
+    renderRecent();
+  }else if(currentRole === 'fleet_manager' || currentRole === 'admin'){
+    renderVehiclesTab();
+    renderLogTable(timeIds, distIds);
+    renderReports(timeIds, distIds);
+  }
+  if(currentRole === 'admin') renderUsers();
+}
+
+/* ===================================================================
+   الأدوار والتبويبات
+   =================================================================== */
+function switchTab(name){
+  const btn = document.querySelector(`.tab[data-tab="${name}"]`);
+  if(!btn || btn.hidden) return;
+  document.querySelectorAll('.tab').forEach(b=> b.classList.toggle('active', b.dataset.tab===name));
+  document.querySelectorAll('.tab-panel').forEach(p=> p.classList.toggle('active', p.id === 'tab-'+name));
+}
+
+/**
+ * (2) حساب المدير لا يرى تبويب «تسجيل عملية» إطلاقًا — التسجيل مسؤولية البوابة.
+ * (3) حساب البوابة يرى تبويب التسجيل وحده.
+ * الإخفاء هنا للراحة فقط؛ المنع الحقيقي مفروض في السيرفر.
+ */
+const ROLE_LABELS = {
+  gate: 'وضع البوابة',
+  fleet_manager: 'وضع مدير الآليات',
+  fuel: 'وضع المازوت',
+  fuel_warehouse_manager: 'وضع مدير مستودع المازوت',
+  admin: 'وضع الأدمن'
+};
+const ROLE_DEFAULT_TAB = {
+  gate: 'entry',
+  fleet_manager: 'vehicles',
+  fuel: 'entry',
+  fuel_warehouse_manager: 'vehicles',
+  admin: 'users'
+};
+
+function applyRoleUI(){
+  document.querySelectorAll('.tab').forEach(b=>{
+    const allowed = (b.dataset.role || '').split(',');
+    b.hidden = !allowed.includes(currentRole);
+  });
+  $('role-badge').textContent = ROLE_LABELS[currentRole] || currentRole;
+  const firstVisible = [...document.querySelectorAll('.tab')].find(b=> !b.hidden);
+  switchTab(ROLE_DEFAULT_TAB[currentRole] && !document.querySelector(`.tab[data-tab="${ROLE_DEFAULT_TAB[currentRole]}"]`).hidden
+    ? ROLE_DEFAULT_TAB[currentRole]
+    : (firstVisible ? firstVisible.dataset.tab : 'entry'));
+}
+
+/* ===================================================================
+   الإجراءات
+   =================================================================== */
+async function submitDeparture(ev){
+  ev.preventDefault();
+  const err = $('form-error');
+  err.hidden = true;
+  const btn = $('submit-btn');
+
+  const payload = {
+    vehicle:    $('f-vehicle').value.trim(),
+    driver:     $('f-driver').value.trim(),
+    customer:   $('f-customer').value.trim(),
+    dateKey:    todayKey(),
+    departTime: getTimeGroup('f-depart'),
+    notesOut:   $('f-notes-out').value.trim()
+  };
+  if(!payload.vehicle || !payload.driver || !payload.customer){
+    err.textContent = 'الرجاء تعبئة الآلية والسائق والزبون.';
+    err.hidden = false;
+    return;
+  }
+
+  // آلية مسجّلة في الخارج محليًا أو على الخادم: نمنع الازدواج قبل الإرسال،
+  // فالخادم قد يكون بعيد المنال الآن ولا نريد اكتشاف الخطأ بعد دقيقة.
+  const alreadyOut = allEntries().find(e =>
+    e.status === 'out' && (e.vehicle||'').trim() === payload.vehicle);
+  if(alreadyOut){
+    err.textContent = `الآلية «${payload.vehicle}» مسجّلة في الخارج منذ ` +
+      `${fmtTime12(alreadyOut.departTime)} مع السائق ${alreadyOut.driver}. سجّل عودتها أولًا.`;
+    err.hidden = false;
+    return;
+  }
+
+  const clearForm = () => {
+    $('entry-form').reset();
+    $('f-depart-wrap').innerHTML = timeGroupHTML('f-depart', nowTime());
+    $('f-vehicle').focus();
+  };
+
+  btn.disabled = true;
+  try{
+    await api('POST', '/api/entries', payload);
+    clearForm();
+    await refresh();
+    render();
+    toast(`سُجّلت مغادرة ${payload.vehicle}`, 'ok');
+  }catch(e){
+    if(e.offline){
+      // الشبكة مقطوعة: نحفظ محليًا ونُكمل. الشاحنة لا تنتظر الشبكة.
+      queueOperation({ kind:'depart', body: payload });
+      clearForm();
+      render();
+      toast(`حُفظت مغادرة ${payload.vehicle} محليًا — ستُرسل عند عودة الاتصال`, 'ok');
+    }else{
+      err.textContent = e.message;
+      err.hidden = false;
+    }
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+async function confirmReturn(id){
+  const kmEl = $('qr-km-'+id);
+  const km = parseFloat(kmEl ? kmEl.value : '');
+  if(isNaN(km)){ toast('الرجاء إدخال كيلومتراج العودة.', 'err'); if(kmEl) kmEl.focus(); return; }
+
+  const payload = {
+    returnTime: getTimeGroup('qr-'+id),
+    returnDate: todayKey(),
+    km,
+    notesIn: ($('qr-note-'+id) || {}).value?.trim() || ''
+  };
+
+  const entry = allEntries().find(e=>e.id===id);
+  const vehName = entry ? entry.vehicle : 'الآلية';
+
+  // مغادرة لم تُرفع بعد: عودتها تُدمَج في نفس العملية المعلّقة بدل أن تُرسل
+  // كطلب منفصل يشير إلى معرّف لا وجود له على الخادم.
+  if(String(id).startsWith('pending:')){
+    // العودة تُصطفّ خلف مغادرتها. عند الرفع يُستبدل هذا المعرّف المؤقّت
+    // بالمعرّف الحقيقي الذي يمنحه الخادم للمغادرة.
+    queueOperation({ kind:'return', entryId: id, body: payload });
+    openReturnId = null;
+    render();
+    toast(`حُفظت عودة ${vehName} محليًا — ستُرسل عند عودة الاتصال`, 'ok');
+    return;
+  }
+
+  try{
+    await api('POST', `/api/entries/${id}/return`, payload);
+  }catch(e){
+    if(e.offline){
+      queueOperation({ kind:'return', entryId: id, body: payload });
+      openReturnId = null;
+      render();
+      toast(`حُفظت عودة ${vehName} محليًا — ستُرسل عند عودة الاتصال`, 'ok');
+      return;
+    }
+    // 409 على الكيلومتراج = رقم أقل من آخر قراءة. نسأل مرة واحدة ثم نفرض.
+    if(e.status === 409 && /كيلومتراج/.test(e.message)){
+      if(!confirm(e.message + '\n\nهل تريد الحفظ بهذا الرقم على أي حال؟')) return;
+      try{ await api('POST', `/api/entries/${id}/return`, {...payload, force:true}); }
+      catch(e2){
+        if(e2.offline){
+          queueOperation({ kind:'return', entryId: id, body: {...payload, force:true} });
+          openReturnId = null; render();
+          toast(`حُفظت عودة ${vehName} محليًا — ستُرسل عند عودة الاتصال`, 'ok');
+          return;
+        }
+        toast(e2.message, 'err'); return;
+      }
+    }else{
+      toast(e.message, 'err');
+      await refresh(); render();
+      return;
+    }
+  }
+  openReturnId = null;
+  await refresh();
+  render();
+  toast(`سُجّلت عودة ${vehName}`, 'ok');
+}
+
+/* ---- تعديل عملية (المدير، عبر نافذة منبثقة) ---- */
+function openEditDialog(id){
+  const e = entries.find(x=>x.id===id);
+  if(!e) return;
+  $('e-id').value = e.id;
+  $('e-vehicle').value = e.vehicle;
+  $('e-driver').value = e.driver;
+  $('e-customer').value = e.customer;
+  $('e-date').value = e.dateKey;
+  $('e-depart-wrap').innerHTML = timeGroupHTML('e-depart', e.departTime);
+  $('e-notes-out').value = e.notesOut || '';
+  $('e-return-date').value = e.returnDate || (e.returnTime ? e.dateKey : '');
+  $('e-return-wrap').innerHTML = timeGroupHTML('e-return', e.returnTime || nowTime());
+  $('e-km').value = e.km ?? '';
+  $('e-notes-in').value = e.notesIn || '';
+  $('edit-error').hidden = true;
+  $('edit-dialog').showModal();
+}
+
+async function submitEdit(ev){
+  ev.preventDefault();
+  const err = $('edit-error');
+  err.hidden = true;
+  const kmRaw = $('e-km').value.trim();
+  const payload = {
+    vehicle:  $('e-vehicle').value.trim(),
+    driver:   $('e-driver').value.trim(),
+    customer: $('e-customer').value.trim(),
+    dateKey:  $('e-date').value,
+    departTime: getTimeGroup('e-depart'),
+    notesOut: $('e-notes-out').value.trim(),
+    notesIn:  $('e-notes-in').value.trim(),
+    km: kmRaw === '' ? null : Number(kmRaw),
+    returnTime: kmRaw === '' ? null : getTimeGroup('e-return'),
+    returnDate: kmRaw === '' ? null : ($('e-return-date').value || $('e-date').value)
+  };
+  try{
+    await api('PUT', `/api/entries/${$('e-id').value}`, payload);
+    $('edit-dialog').close();
+    await refresh(); render();
+    toast('حُفظت التعديلات', 'ok');
+  }catch(e){
+    err.textContent = e.message;
+    err.hidden = false;
+  }
+}
+
+async function deleteEntry(id){
+  const e = entries.find(x=>x.id===id);
+  if(!e) return;
+  if(!confirm(`حذف عملية «${e.vehicle}» بتاريخ ${e.dateKey}؟\nالحذف يُسجَّل في سجل التدقيق.`)) return;
+  try{
+    await api('DELETE', `/api/entries/${id}`);
+    await refresh(); render();
+    toast('حُذفت العملية', 'ok');
+  }catch(err){ toast(err.message, 'err'); }
+}
+
+/* ---- الآليات ---- */
+function resetVehicleForm(){
+  $('vehicle-form').reset();
+  $('v-edit-id').value = '';
+  $('vehicle-form-title').textContent = 'تسجيل آلية جديدة';
+  $('v-submit-btn').textContent = 'حفظ الآلية';
+  $('v-cancel-edit').hidden = true;
+  $('vehicle-error').hidden = true;
+}
+
+async function submitVehicle(ev){
+  ev.preventDefault();
+  const err = $('vehicle-error');
+  err.hidden = true;
+  const name = $('v-name').value.trim();
+  const km = parseFloat($('v-km').value);
+  if(!name || isNaN(km)){
+    err.textContent = 'الرجاء إدخال اسم الآلية وكيلومتراجها الحالي.';
+    err.hidden = false;
+    return;
+  }
+  const editId = $('v-edit-id').value;
+  try{
+    if(editId) await api('PUT', `/api/vehicles/${editId}`, {name, baselineKm:km});
+    else       await api('POST', '/api/vehicles', {name, baselineKm:km});
+    resetVehicleForm();
+    await refresh(); render();
+    toast(editId ? 'حُفظت التعديلات' : `أُضيفت الآلية ${name}`, 'ok');
+  }catch(e){
+    err.textContent = e.message;
+    err.hidden = false;
+  }
+}
+
+function startEditVehicle(id){
+  const v = vehicles.find(x=>x.id===id);
+  if(!v) return;
+  $('v-edit-id').value = v.id;
+  $('v-name').value = v.name;
+  $('v-km').value = v.baselineKm;
+  $('vehicle-form-title').textContent = 'تعديل بيانات آلية';
+  $('v-submit-btn').textContent = 'حفظ التعديلات';
+  $('v-cancel-edit').hidden = false;
+  $('v-name').focus();
+}
+
+async function deleteVehicleAction(id){
+  const v = vehicles.find(x=>x.id===id);
+  if(!v) return;
+  if(!confirm(`حذف الآلية «${v.name}» من القائمة؟`)) return;
+  try{
+    await api('DELETE', `/api/vehicles/${id}`);
+    await refresh(); render();
+    toast('حُذفت الآلية', 'ok');
+  }catch(e){
+    if(e.status === 409 && /عملية في السجل/.test(e.message)){
+      if(!confirm(e.message + '\n\nهل تريد الحذف على أي حال؟')) return;
+      try{
+        await api('DELETE', `/api/vehicles/${id}?force=1`);
+        await refresh(); render();
+        toast('حُذفت الآلية', 'ok');
+      }catch(e2){ toast(e2.message, 'err'); }
+    }else{
+      toast(e.message, 'err');
+    }
+  }
+}
+
+/* ---- المستخدمون (الأدمن) ---- */
+let usersCache = [];
+
+const ROLE_NAME = {
+  gate: 'البوابة', fleet_manager: 'مدير الآليات', fuel: 'المازوت',
+  fuel_warehouse_manager: 'مدير مستودع المازوت', admin: 'أدمن'
+};
+
+function resetUserForm(){
+  $('user-form').reset();
+  $('u-edit-id').value = '';
+  $('u-username').disabled = false;
+  $('user-form-title').textContent = 'إضافة مستخدم جديد';
+  $('u-submit-btn').textContent = 'حفظ المستخدم';
+  $('u-cancel-edit').hidden = true;
+  $('u-password-field').hidden = false;
+  $('user-error').hidden = true;
+}
+
+async function submitUser(ev){
+  ev.preventDefault();
+  const err = $('user-error');
+  err.hidden = true;
+  const editId = $('u-edit-id').value;
+  const username = $('u-username').value.trim();
+  const fullName = $('u-fullname').value.trim();
+  const role = $('u-role').value;
+  if(!username){ err.textContent = 'اسم المستخدم مطلوب.'; err.hidden = false; return; }
+  try{
+    if(editId){
+      await api('PUT', `/api/users/${editId}`, { fullName, role });
+    }else{
+      const password = $('u-password').value;
+      if(password.length < 6){ err.textContent = 'كلمة المرور يجب أن تكون 6 محارف على الأقل.'; err.hidden = false; return; }
+      await api('POST', '/api/users', { username, fullName, role, password });
+    }
+    resetUserForm();
+    await loadUsers();
+    toast(editId ? 'حُفظت التعديلات' : `أُضيف المستخدم ${username}`, 'ok');
+  }catch(e){ err.textContent = e.message; err.hidden = false; }
+}
+
+function startEditUser(id){
+  const u = usersCache.find(x=>x.id===id);
+  if(!u) return;
+  $('u-edit-id').value = u.id;
+  $('u-username').value = u.username;
+  $('u-username').disabled = true;
+  $('u-fullname').value = u.fullName || '';
+  $('u-role').value = u.role;
+  $('user-form-title').textContent = `تعديل بيانات ${u.username}`;
+  $('u-submit-btn').textContent = 'حفظ التعديلات';
+  $('u-cancel-edit').hidden = false;
+  $('u-password-field').hidden = true;
+  $('user-error').hidden = true;
+}
+
+async function toggleUserActive(id){
+  const u = usersCache.find(x=>x.id===id);
+  if(!u) return;
+  try{
+    await api('PUT', `/api/users/${id}/active`, { active: !u.active });
+    await loadUsers();
+    toast(u.active ? `عُطِّل حساب ${u.username}` : `فُعِّل حساب ${u.username}`, 'ok');
+  }catch(e){ toast(e.message, 'err'); }
+}
+
+async function resetUserPasswordPrompt(id){
+  const u = usersCache.find(x=>x.id===id);
+  if(!u) return;
+  const pw = prompt(`كلمة مرور جديدة لـ ${u.username} (6 محارف على الأقل):`);
+  if(pw === null) return;
+  if(pw.length < 6){ toast('كلمة المرور قصيرة جدًا.', 'err'); return; }
+  try{
+    await api('POST', `/api/users/${id}/password`, { password: pw });
+    toast(`تم تغيير كلمة مرور ${u.username}`, 'ok');
+  }catch(e){ toast(e.message, 'err'); }
+}
+
+function renderUsers(){
+  $('user-empty').hidden = usersCache.length > 0;
+  $('user-table-body').innerHTML = usersCache.map(u => `<tr>
+      <td>${escapeHtml(u.username)}</td>
+      <td>${escapeHtml(u.fullName || '—')}</td>
+      <td>${escapeHtml(ROLE_NAME[u.role] || u.role)}</td>
+      <td>${u.active ? '<span class="badge badge-ok">مفعّل</span>' : '<span class="badge badge-alert">معطّل</span>'}</td>
+      <td class="row-actions">
+        <button class="btn-edit" data-id="${u.id}">تعديل</button>
+        <button class="btn-ghost btn-sm" data-pw="${u.id}">كلمة مرور جديدة</button>
+        <button class="btn-delete" data-toggle="${u.id}">${u.active ? 'تعطيل' : 'تفعيل'}</button>
+      </td>
+    </tr>`).join('');
+}
+
+async function loadUsers(){
+  try{
+    const data = await api('GET', '/api/users');
+    usersCache = data.users;
+    renderUsers();
+  }catch(e){ toast(e.message, 'err'); }
+}
+
+async function loadAudit(){
+  try{
+    const data = await api('GET', '/api/audit?limit=100');
+    const label = {
+      login:'دخول', logout:'خروج', login_failed:'محاولة دخول فاشلة',
+      depart:'تسجيل مغادرة', return:'تسجيل عودة', edit_entry:'تعديل عملية',
+      delete_entry:'حذف عملية', add_vehicle:'إضافة آلية', edit_vehicle:'تعديل آلية',
+      delete_vehicle:'حذف آلية', change_password:'تغيير كلمة مرور',
+      add_user:'إضافة مستخدم', edit_user:'تعديل مستخدم',
+      activate_user:'تفعيل مستخدم', deactivate_user:'تعطيل مستخدم',
+      export_csv:'تصدير السجل', backup:'نسخة احتياطية'
+    };
+    $('audit-body').innerHTML = data.rows.map(r=>{
+      let detail = '';
+      try{
+        const d = r.detail ? JSON.parse(r.detail) : null;
+        if(d) detail = [d.vehicle, d.name, d.driver, d.target, d.km, d.role].filter(Boolean).join(' · ');
+      }catch(err){ detail = ''; }
+      return `<tr>
+        <td>${new Date(r.at).toLocaleString('ar-EG')}</td>
+        <td>${escapeHtml(r.username || '—')}</td>
+        <td>${escapeHtml(ROLE_NAME[r.role] || r.role)}</td>
+        <td>${label[r.action] || escapeHtml(r.action)}</td>
+        <td>${escapeHtml(r.ip)}</td>
+        <td>${escapeHtml(detail)}</td>
+      </tr>`;
+    }).join('');
+  }catch(e){ toast(e.message, 'err'); }
+}
+
+/* ===================================================================
+   تسجيل الدخول
+   =================================================================== */
+function showLoginChooser(){
+  $('login-form').reset();
+  $('login-error').hidden = true;
+  $('login-username').focus();
+}
+
+async function doLogin(ev){
+  ev.preventDefault();
+  const err = $('login-error');
+  err.hidden = true;
+  const btn = $('login-submit');
+  btn.disabled = true;
+  try{
+    const data = await api('POST', '/api/login', {
+      username: $('login-username').value,
+      password: $('login-password').value
+    });
+    await enterApp(data.role, data.username);
+  }catch(e){
+    err.textContent = e.message;
+    err.hidden = false;
+    $('login-password').select();
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+async function enterApp(role, username){
+  currentRole = role;
+  currentUsername = username || null;
+  $('login-screen').style.display = 'none';
+  $('app-shell').hidden = false;
+  $('f-depart-wrap').innerHTML = timeGroupHTML('f-depart', nowTime());
+  applyRoleUI();
+
+  // عمليات بقيت من جلسة سابقة انقطعت فيها الشبكة: تُرفع قبل أي شيء آخر.
+  if(outbox.length){
+    toast(`${outbox.length} عملية محفوظة محليًا — جارٍ إرسالها`, 'ok');
+    await flushOutbox();
+  }
+
+  try{ await refresh(); }
+  catch(err){ setSyncStatus('error'); }   // نعرض المعلّق حتى لو الخادم بعيد
+  render();
+  startPolling();
+  if(role === 'admin') loadAudit();
+  if(role === 'admin') loadUsers();
+}
+
+/* ===================================================================
+   ربط الأحداث
+   =================================================================== */
+function bindEvents(){
+  document.querySelectorAll('.tab').forEach(b=> b.addEventListener('click', ()=> switchTab(b.dataset.tab)));
+
+  // الدخول
+  $('login-form').addEventListener('submit', doLogin);
+  $('login-show-pw').addEventListener('change', ev=>{
+    $('login-password').type = ev.target.checked ? 'text' : 'password';
+  });
+  $('logout-btn').addEventListener('click', async ()=>{
+    stopPolling();
+    try{ await api('POST','/api/logout'); }catch(e){ /* الجلسة انتهت أصلًا */ }
+    location.reload();
+  });
+
+  // البوابة
+  $('entry-form').addEventListener('submit', submitDeparture);
+  $('out-search').addEventListener('input', ev=>{ outSearch = ev.target.value; renderOutList(); });
+  $('out-search').addEventListener('keydown', ev=>{
+    if(ev.key === 'Escape'){ ev.target.value=''; outSearch=''; renderOutList(); }
+  });
+  $('out-list').addEventListener('click', ev=>{
+    const btn = ev.target.closest('button'); if(!btn) return;
+    if(btn.dataset.open){ openReturnId = btn.dataset.open; renderOutList(); }
+    else if(btn.dataset.cancel){ openReturnId = null; renderOutList(); }
+    else if(btn.dataset.confirm){ confirmReturn(btn.dataset.confirm); }
+  });
+  $('out-list').addEventListener('keydown', ev=>{
+    if(ev.key === 'Enter' && ev.target.id && ev.target.id.startsWith('qr-')){
+      ev.preventDefault();
+      const id = ev.target.id.replace(/^qr-(km-|note-)?/, '');
+      if(openReturnId) confirmReturn(openReturnId);
+    }
+  });
+
+  // المدير — السجل
+  $('log-search').addEventListener('input', ev=>{ logSearch = ev.target.value; render(); });
+  $('log-table-body').addEventListener('click', ev=>{
+    const btn = ev.target.closest('button'); if(!btn) return;
+    if(btn.classList.contains('btn-edit')) openEditDialog(btn.dataset.id);
+    else if(btn.classList.contains('btn-delete')) deleteEntry(btn.dataset.id);
+  });
+  $('export-csv').addEventListener('click', ()=>{ location.href = '/api/export/entries.csv'; });
+
+  // نافذة التعديل
+  $('edit-form').addEventListener('submit', submitEdit);
+  $('edit-cancel').addEventListener('click', ()=> $('edit-dialog').close());
+  $('edit-close').addEventListener('click', ()=> $('edit-dialog').close());
+
+  // المدير — الآليات
+  $('vehicle-form').addEventListener('submit', submitVehicle);
+  $('v-cancel-edit').addEventListener('click', resetVehicleForm);
+  $('vehicle-table-body').addEventListener('click', ev=>{
+    const btn = ev.target.closest('button'); if(!btn) return;
+    if(btn.classList.contains('btn-edit')) startEditVehicle(btn.dataset.id);
+    else if(btn.classList.contains('btn-delete')) deleteVehicleAction(btn.dataset.id);
+  });
+
+  // المدير — التقارير
+  $('pct-threshold').addEventListener('input', render);
+  $('pct-threshold-dist').addEventListener('input', render);
+
+  // الأدمن — المستخدمون
+  $('user-form').addEventListener('submit', submitUser);
+  $('u-cancel-edit').addEventListener('click', resetUserForm);
+  $('user-table-body').addEventListener('click', ev=>{
+    const btn = ev.target.closest('button'); if(!btn) return;
+    if(btn.dataset.id) startEditUser(btn.dataset.id);
+    else if(btn.dataset.pw) resetUserPasswordPrompt(btn.dataset.pw);
+    else if(btn.dataset.toggle) toggleUserActive(btn.dataset.toggle);
+  });
+  $('audit-refresh').addEventListener('click', loadAudit);
+  $('backup-btn').addEventListener('click', async ()=>{
+    try{ const r = await api('POST','/api/backup'); toast('أُنشئت نسخة: ' + r.file, 'ok'); }
+    catch(e){ toast(e.message, 'err'); }
+  });
+}
+
+/* ===================================================================
+   الإقلاع
+   =================================================================== */
+(async function init(){
+  loadOutbox();          // قبل أي عرض: المعلّق جزء من صورة الحالة
+  bindEvents();
+  try{
+    // جلسة سابقة ما زالت صالحة؟ ادخل مباشرة بدل إعادة طلب كلمة المرور.
+    const me = await api('GET', '/api/me');
+    if(me.role){ await enterApp(me.role, me.username); return; }
+  }catch(e){
+    setSyncStatus('error');
+  }
+  showLoginChooser();
+})();
+</script>
+</body>
+</html>

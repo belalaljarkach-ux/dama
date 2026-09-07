@@ -1,0 +1,26 @@
+{
+  "_تعليمات": "انسخ هذا الملف باسم gatelog.config.json واملأ القيم، ثم احذف المفاتيح التي لا تخصّ محرّكك. لا تضع كلمة المرور في سطر الأوامر — تظهر لأي مستخدم على السيرفر.",
+  "_تقييد_الصلاحيات": "icacls gatelog.config.json /inheritance:r /grant:r \"SYSTEM:(R)\" \"Administrators:(F)\"",
+
+  "driver": "mssql",
+
+  "_____SQL_SERVER_____": "المحرّك الافتراضي",
+  "mssqlServer": "127.0.0.1",
+  "mssqlPort": 1433,
+  "mssqlDatabase": "gate_log",
+  "mssqlUser": "gatelog_app",
+  "mssqlPassword": "ضع-كلمة-المرور-هنا",
+  "_mssqlInstance": "SQLEXPRESS — املأه فقط إن كانت النسخة مُسمّاة، واحذف الشرطة السفلية من الاسم",
+  "_mssqlTrustServerCertificate": "true افتراضيًا — مناسب لسيرفر داخلي بشهادة ذاتية التوقيع",
+
+  "_____MONGODB_____": "استخدم driver = mongo",
+  "_mongoUri_محلي": "mongodb://127.0.0.1:27017",
+  "_mongoUri_Atlas": "mongodb+srv://المستخدم:كلمة-المرور@العنقود.xxxxx.mongodb.net/?retryWrites=true&w=majority",
+  "_mongoDb": "gate_log",
+
+  "_____SQLITE_____": "استخدم driver = sqlite — لا يحتاج أي إعداد إضافي",
+
+  "port": 8787,
+  "host": "0.0.0.0",
+  "windowDays": 120
+}

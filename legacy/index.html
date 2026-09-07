@@ -1,0 +1,1011 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سجل بوابة المجبل</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap');
+
+  :root{
+    --bg:#EAE6DA;
+    --surface:#FFFFFF;
+    --surface-2:#F4F0E6;
+    --ink:#2B2620;
+    --ink-soft:#79705F;
+    --line:#D9D0BC;
+    --accent:#C1531E;
+    --accent-ink:#FFF6EE;
+    --ok:#4B6C55;
+    --ok-bg:#E3EDE6;
+    --alert:#B23327;
+    --alert-bg:#F7E0DB;
+    --warn:#9C6B0B;
+    --warn-bg:#F2E4C4;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Cairo',sans-serif;
+    font-weight:400;
+    line-height:1.55;
+  }
+  .app{max-width:980px;margin:0 auto;padding:20px 16px 60px;}
+
+  .ro-banner{
+    background:var(--accent);color:var(--accent-ink);padding:9px 14px;border-radius:8px;
+    font-size:13px;font-weight:700;margin-bottom:14px;text-align:center;
+  }
+
+  /* ---- Hero / gate ticket ---- */
+  .hero{margin-bottom:18px;}
+  .hero-stub{
+    background:linear-gradient(180deg, var(--ink) 0%, #3A342B 100%);
+    color:var(--accent-ink);
+    border-radius:var(--radius);
+    padding:20px 22px 16px;
+    position:relative;
+    overflow:hidden;
+  }
+  .hero-stub::before{
+    content:"";
+    position:absolute;
+    inset:0;
+    background-image:repeating-linear-gradient(135deg, rgba(255,255,255,.04) 0 2px, transparent 2px 14px);
+    pointer-events:none;
+  }
+  .hero-top{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;color:#D8CBB8;}
+  .hero-eyebrow{letter-spacing:.5px;font-weight:700;}
+  .hero-title{font-size:26px;font-weight:900;margin:6px 0 14px;}
+  .hero-perf{border-top:2px dashed rgba(255,255,255,.25);margin:6px 0 14px;}
+  .hero-stats{display:flex;gap:10px;flex-wrap:wrap;}
+  .kpi{
+    background:rgba(255,255,255,.08);
+    border:1px solid rgba(255,255,255,.14);
+    border-radius:8px;
+    padding:8px 14px;
+    min-width:110px;
+  }
+  .kpi .n{font-size:20px;font-weight:900;display:block;}
+  .kpi .l{font-size:12px;color:#D8CBB8;}
+  .kpi.alert-kpi{background:rgba(178,51,39,.35);border-color:rgba(178,51,39,.6);}
+  .kpi.out-kpi{background:rgba(193,83,30,.35);border-color:rgba(193,83,30,.6);}
+
+  /* ---- Tabs ---- */
+  .tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--line);flex-wrap:wrap;}
+  .tab{
+    font-family:inherit;font-size:15px;font-weight:700;color:var(--ink-soft);
+    background:none;border:none;padding:12px 10px;cursor:pointer;
+    border-bottom:3px solid transparent;
+  }
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+  .tab-panel{display:none;}
+  .tab-panel.active{display:block;}
+
+  /* ---- Cards / forms ---- */
+  .card{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:18px;
+    margin-bottom:16px;
+  }
+  .card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+  h2{font-size:16px;font-weight:700;margin:0;}
+  h3{font-size:14px;font-weight:700;margin:0 0 10px;color:var(--ink-soft);}
+  .count-badge{
+    background:var(--surface-2);color:var(--ink-soft);font-size:12px;font-weight:700;
+    border-radius:20px;padding:3px 10px;
+  }
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;}
+  .field-wide{grid-column:1 / -1;}
+  .field label{display:block;font-size:13px;font-weight:700;margin-bottom:4px;}
+  .field small{display:block;color:var(--ink-soft);font-size:11px;margin-top:3px;}
+  input,textarea,select{
+    width:100%;font-family:inherit;font-size:16px;color:var(--ink);
+    background:var(--surface-2);border:1px solid var(--line);border-radius:8px;
+    padding:11px 12px;
+  }
+  input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-offset:1px;}
+  textarea{resize:vertical;}
+  .form-actions{grid-column:1/-1;display:flex;gap:10px;align-items:center;margin-top:4px;flex-wrap:wrap;}
+  .btn-primary{
+    font-family:inherit;font-weight:700;font-size:15px;color:var(--accent-ink);
+    background:var(--accent);border:none;border-radius:8px;padding:12px 22px;cursor:pointer;
+    min-height:44px;
+  }
+  .btn-primary:hover{filter:brightness(1.06);}
+  .btn-sm{padding:10px 16px;font-size:14px;white-space:nowrap;min-height:40px;}
+  .btn-ghost{
+    font-family:inherit;font-weight:700;font-size:14px;color:var(--ink-soft);
+    background:none;border:1px solid var(--line);border-radius:8px;padding:11px 18px;cursor:pointer;
+    min-height:44px;
+  }
+  .form-error{grid-column:1/-1;color:var(--alert);font-size:13px;font-weight:700;margin:0;}
+  .return-fields-block{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;
+    border-top:1px dashed var(--line);padding-top:12px;margin-top:2px;}
+  .return-fields-block .hint{grid-column:1/-1;color:var(--ink-soft);font-size:12px;margin:0 0 2px;}
+
+  /* ---- Out list (quick return) ---- */
+  .out-row{
+    display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;
+    padding:14px 0;border-bottom:1px dashed var(--line);
+  }
+  .out-row:last-child{border-bottom:none;}
+  .out-info .who{font-weight:700;font-size:15px;}
+  .out-info .meta{color:var(--ink-soft);font-size:12px;margin-top:2px;}
+  .quick-return{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .quick-return input{width:auto;min-width:120px;}
+  .quick-return input[type=number]{width:150px;}
+  .quick-return input[type=text]{width:170px;}
+
+  /* ---- Recent list ---- */
+  .recent-item{
+    display:flex;justify-content:space-between;gap:12px;align-items:center;
+    padding:10px 0;border-bottom:1px dashed var(--line);font-size:13px;
+  }
+  .recent-item:last-child{border-bottom:none;}
+  .recent-item .who{font-weight:700;}
+  .recent-item .meta{color:var(--ink-soft);}
+  .badge{
+    display:inline-block;font-size:11px;font-weight:700;border-radius:20px;padding:3px 10px;
+  }
+  .badge-ok{background:var(--ok-bg);color:var(--ok);}
+  .badge-alert{background:var(--alert-bg);color:var(--alert);}
+  .badge-warn{background:var(--warn-bg);color:var(--warn);}
+  .badge-out{background:var(--accent-ink);color:var(--accent);}
+  .empty{color:var(--ink-soft);font-size:13px;padding:8px 0;}
+
+  /* ---- Table ---- */
+  .table-wrap{overflow-x:auto;}
+  table{border-collapse:collapse;width:100%;font-size:13px;min-width:820px;}
+  th,td{text-align:right;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap;}
+  th{color:var(--ink-soft);font-size:12px;font-weight:700;}
+  tr.is-alert td{background:var(--alert-bg);}
+  tr.is-warn td{background:var(--warn-bg);}
+  tr.is-out td{background:var(--surface-2);}
+  .row-actions button{
+    font-family:inherit;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;
+    color:var(--ink-soft);margin-inline-start:8px;padding:6px 0;
+  }
+  .row-actions button:hover{color:var(--accent);}
+  .row-actions .btn-delete:hover{color:var(--alert);}
+
+  /* ---- Reports ---- */
+  .pct-control{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;margin-bottom:10px;flex-wrap:wrap;}
+  .pct-control input{width:80px;}
+  .alert-row{
+    display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;
+    background:var(--alert-bg);border-radius:8px;padding:10px 12px;margin-bottom:8px;font-size:13px;
+  }
+  .alert-row .tags{display:flex;gap:6px;}
+  .group{margin-bottom:18px;border:1px solid var(--line);border-radius:8px;overflow:hidden;}
+  .group-head{
+    background:var(--surface-2);padding:9px 14px;font-weight:700;font-size:13px;
+    display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px;
+  }
+  .group-head .total{color:var(--ink-soft);font-weight:400;}
+
+  @media (max-width:640px){
+    .form-grid,.return-fields-block{grid-template-columns:1fr;}
+    .hero-title{font-size:22px;}
+    .out-row{flex-direction:column;align-items:stretch;}
+    .quick-return{flex-direction:column;align-items:stretch;}
+    .quick-return input{width:100%;}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header class="hero">
+    <div class="hero-stub">
+      <div class="hero-top">
+        <span class="hero-eyebrow">سجل بوابة المجبل</span>
+        <span id="today-date"></span>
+      </div>
+      <div class="hero-title">تسجيل حركة الآليات</div>
+      <div class="hero-perf"></div>
+      <div class="hero-stats" id="hero-stats"></div>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="entry">تسجيل عملية</button>
+    <button class="tab" data-tab="vehicles">الآليات</button>
+    <button class="tab" data-tab="log">السجل الكامل</button>
+    <button class="tab" data-tab="reports">التقارير والتنبيهات</button>
+  </nav>
+
+  <!-- تسجيل عملية -->
+  <section class="tab-panel active" id="tab-entry">
+
+    <div class="card">
+      <div class="card-head">
+        <h2>آليات في الخارج — تسجيل العودة</h2>
+        <span class="count-badge" id="out-count">0</span>
+      </div>
+      <div id="out-list"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2 id="form-title">تسجيل مغادرة جديدة</h2></div>
+      <form id="entry-form" class="form-grid" novalidate>
+        <input type="hidden" id="edit-id" value="">
+        <div class="field field-wide">
+          <label for="f-vehicle">الآلية (النوع والرقم)</label>
+          <input list="dl-vehicles" id="f-vehicle" placeholder="مثال: قلاب رقم 3" required>
+          <small>سجّل الآلية أولًا من تبويب "الآليات" مع كيلومتراجها الحالي، لضمان دقة حساب المسافة من أول رحلة</small>
+        </div>
+        <div class="field">
+          <label for="f-driver">اسم السائق</label>
+          <input list="dl-drivers" id="f-driver" required>
+        </div>
+        <div class="field">
+          <label for="f-customer">اسم الزبون</label>
+          <input list="dl-customers" id="f-customer" required>
+        </div>
+        <div class="field">
+          <label for="f-depart">وقت المغادرة</label>
+          <input type="time" id="f-depart" required>
+        </div>
+        <div class="field">
+          <label for="f-notes-out">ملاحظة الخروج</label>
+          <input type="text" id="f-notes-out">
+        </div>
+
+        <div class="return-fields-block" id="return-fields-block" hidden>
+          <p class="hint">عبّئ هذين الحقلين فقط عند إغلاق العملية بوقت العودة وكيلومتراجها، وإلا اتركهما فارغين لتبقى العملية في الخارج.</p>
+          <div class="field">
+            <label for="f-return">وقت العودة</label>
+            <input type="time" id="f-return">
+          </div>
+          <div class="field">
+            <label for="f-km">كيلومتراج العودة</label>
+            <input type="number" id="f-km" min="0" step="0.1">
+          </div>
+          <div class="field field-wide">
+            <label for="f-notes-in">ملاحظة العودة</label>
+            <input type="text" id="f-notes-in">
+          </div>
+        </div>
+
+        <p class="form-error" id="form-error" hidden></p>
+        <div class="form-actions">
+          <button type="submit" class="btn-primary" id="submit-btn">تسجيل المغادرة</button>
+          <button type="button" class="btn-ghost" id="cancel-edit" hidden>إلغاء التعديل</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h3>آخر العمليات المسجلة</h3>
+      <div id="recent-list"></div>
+    </div>
+  </section>
+
+  <!-- الآليات -->
+  <section class="tab-panel" id="tab-vehicles">
+    <div class="card">
+      <div class="card-head"><h2 id="vehicle-form-title">تسجيل آلية جديدة</h2></div>
+      <form id="vehicle-form" class="form-grid" novalidate>
+        <input type="hidden" id="v-edit-id" value="">
+        <div class="field">
+          <label for="v-name">الآلية (النوع والرقم)</label>
+          <input id="v-name" placeholder="مثال: قلاب رقم 3" required>
+        </div>
+        <div class="field">
+          <label for="v-km">الكيلومتراج الحالي</label>
+          <input type="number" id="v-km" min="0" step="0.1" required>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn-primary" id="v-submit-btn">حفظ الآلية</button>
+          <button type="button" class="btn-ghost" id="v-cancel-edit" hidden>إلغاء</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>الآليات المسجّلة</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>الآلية</th><th>كيلومتراج البداية</th><th>آخر قراءة مسجّلة</th><th></th></tr></thead>
+          <tbody id="vehicle-table-body"></tbody>
+        </table>
+      </div>
+      <p class="empty" id="vehicle-empty" hidden>لا توجد آليات مسجّلة بعد.</p>
+    </div>
+  </section>
+
+  <!-- السجل الكامل -->
+  <section class="tab-panel" id="tab-log">
+    <div class="card">
+      <h2>السجل الكامل</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>الحالة</th><th>الآلية</th><th>السائق</th><th>الزبون</th>
+              <th>المغادرة</th><th>العودة</th><th>المدة</th>
+              <th>كم. العودة</th><th>المسافة</th><th>ملاحظات</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="log-table-body"></tbody>
+        </table>
+      </div>
+      <p class="empty" id="log-empty" hidden>لا توجد عمليات مسجلة بعد. ابدأ من تبويب "تسجيل عملية".</p>
+    </div>
+  </section>
+
+  <!-- التقارير -->
+  <section class="tab-panel" id="tab-reports">
+    <div class="card">
+      <h2>معايير التنبيه</h2>
+      <div class="pct-control">
+        <label for="pct-threshold">تجاوز في الوقت عن المتوسط بنسبة:</label>
+        <input type="number" id="pct-threshold" value="20" min="0" max="300">
+        <span>%</span>
+      </div>
+      <div class="pct-control">
+        <label for="pct-threshold-dist">تجاوز في المسافة عن المتوسط بنسبة:</label>
+        <input type="number" id="pct-threshold-dist" value="20" min="0" max="300">
+        <span>%</span>
+      </div>
+      <div id="alerts-panel"></div>
+    </div>
+
+    <div class="card">
+      <h2>تقرير الآليات — المسافة المقطوعة</h2>
+      <div id="report-vehicles"></div>
+    </div>
+
+    <div class="card">
+      <h2>تقرير المقارنة حسب الزبون</h2>
+      <div id="report-customers"></div>
+    </div>
+  </section>
+
+  <datalist id="dl-vehicles"></datalist>
+  <datalist id="dl-drivers"></datalist>
+  <datalist id="dl-customers"></datalist>
+</div>
+
+<!-- ===== local-environment shim ===================================
+     index.html expects a global window.storage that only exists in
+     the hosted sandbox. storage-adapter.js supplies it. Change
+     backend to 'local' | 'server' | 'gas' below, or override at
+     runtime with ?backend=server in the URL.
+     ============================================================= -->
+<script>
+  window.GATE_LOG_CONFIG = {
+    backend:   "local",
+    serverUrl: "http://localhost:8787",
+    gasUrl:    ""
+  };
+</script>
+<script src="storage-adapter.js"></script>
+
+<script>
+let entries = [];
+let vehicles = [];
+let openReturnId = null;
+
+const params = new URLSearchParams(location.search);
+const reportsOnlyMode = params.get('view') === 'reports';
+
+function uid(){
+  return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2,8);
+}
+
+function todayKey(){
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function nowTime(){
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+
+async function loadEntries(){
+  try{
+    const res = await window.storage.get('gate-log-entries', true);
+    entries = (res && res.value) ? JSON.parse(res.value) : [];
+  }catch(err){
+    entries = [];
+  }
+}
+async function persist(){
+  try{ await window.storage.set('gate-log-entries', JSON.stringify(entries), true); }
+  catch(err){ console.error('storage error', err); }
+}
+
+async function loadVehicles(){
+  try{
+    const res = await window.storage.get('gate-log-vehicles', true);
+    vehicles = (res && res.value) ? JSON.parse(res.value) : [];
+  }catch(err){
+    vehicles = [];
+  }
+}
+async function persistVehicles(){
+  try{ await window.storage.set('gate-log-vehicles', JSON.stringify(vehicles), true); }
+  catch(err){ console.error('storage error', err); }
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function fmtDuration(min){
+  if(min===null || min===undefined || isNaN(min)) return '—';
+  const h = Math.floor(Math.abs(min)/60);
+  const m = Math.abs(min)%60;
+  const sign = min<0 ? '-' : '';
+  return `${sign}${h} س ${m} د`;
+}
+function fmtDistance(km){
+  if(km===null || km===undefined || isNaN(km)) return 'غير متاحة';
+  return km.toFixed(1) + ' كم';
+}
+
+function getDepartDateTime(e){
+  return new Date(`${e.dateKey}T${e.departTime}:00`);
+}
+function getReturnDateTime(e){
+  const dep = getDepartDateTime(e);
+  const ret = new Date(`${e.dateKey}T${e.returnTime}:00`);
+  if(ret < dep) ret.setDate(ret.getDate()+1);
+  return ret;
+}
+function getBaseline(vehicleName){
+  const v = vehicles.find(x=>x.name.trim()===vehicleName.trim());
+  return v ? v.baselineKm : null;
+}
+function lastKnownKm(name){
+  const list = entries.filter(e=>e.status==='done' && (e.vehicle||'').trim()===name.trim());
+  if(list.length===0) return null;
+  list.sort((a,b)=> getDepartDateTime(b)-getDepartDateTime(a));
+  return list[0].km;
+}
+
+function enrichEntries(){
+  const done = entries.filter(e=>e.status==='done');
+  const byVehicle = {};
+  done.forEach(e=>{
+    const key=(e.vehicle||'').trim();
+    if(!byVehicle[key]) byVehicle[key]=[];
+    byVehicle[key].push(e);
+  });
+  Object.values(byVehicle).forEach(list=>{
+    list.sort((a,b)=> getDepartDateTime(a)-getDepartDateTime(b));
+    list.forEach((e,i)=>{
+      if(i===0){
+        const base = getBaseline(key_of(list));
+        e._distance = (base!==null && base!==undefined && !isNaN(base)) ? (e.km-base) : null;
+      } else {
+        e._distance = e.km - list[i-1].km;
+      }
+    });
+  });
+  done.forEach(e=>{
+    e._durationMin = Math.round((getReturnDateTime(e)-getDepartDateTime(e))/60000);
+  });
+}
+function key_of(list){ return (list[0].vehicle||'').trim(); }
+
+function getTimeAlertIds(pct){
+  const done = entries.filter(e=>e.status==='done');
+  const byCustomer = {};
+  done.forEach(e=>{
+    const key=(e.customer||'').trim();
+    if(!byCustomer[key]) byCustomer[key]=[];
+    byCustomer[key].push(e);
+  });
+  const ids = new Set();
+  Object.values(byCustomer).forEach(list=>{
+    if(list.length<2) return;
+    const avg = list.reduce((s,e)=>s+e._durationMin,0)/list.length;
+    const threshold = avg*(1+pct/100);
+    list.forEach(e=>{ if(e._durationMin>threshold) ids.add(e.id); });
+  });
+  return ids;
+}
+function getDistanceAlertIds(pct){
+  const done = entries.filter(e=>e.status==='done' && e._distance!==null && e._distance!==undefined && !isNaN(e._distance));
+  const byCustomer = {};
+  done.forEach(e=>{
+    const key=(e.customer||'').trim();
+    if(!byCustomer[key]) byCustomer[key]=[];
+    byCustomer[key].push(e);
+  });
+  const ids = new Set();
+  Object.values(byCustomer).forEach(list=>{
+    if(list.length<2) return;
+    const avg = list.reduce((s,e)=>s+e._distance,0)/list.length;
+    const threshold = avg*(1+pct/100);
+    list.forEach(e=>{ if(e._distance>threshold) ids.add(e.id); });
+  });
+  return ids;
+}
+
+function uniqueSorted(field){
+  return [...new Set(entries.map(e=>(e[field]||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'));
+}
+function uniqueVehicleNames(){
+  const set = new Set();
+  vehicles.forEach(v=> set.add(v.name.trim()));
+  entries.forEach(e=>{ if(e.vehicle) set.add(e.vehicle.trim()); });
+  return [...set].filter(Boolean).sort((a,b)=>a.localeCompare(b,'ar'));
+}
+
+function renderDatalists(){
+  document.getElementById('dl-vehicles').innerHTML = uniqueVehicleNames().map(v=>`<option value="${escapeHtml(v)}">`).join('');
+  document.getElementById('dl-drivers').innerHTML = uniqueSorted('driver').map(v=>`<option value="${escapeHtml(v)}">`).join('');
+  document.getElementById('dl-customers').innerHTML = uniqueSorted('customer').map(v=>`<option value="${escapeHtml(v)}">`).join('');
+}
+
+function renderHero(alertUnionSize){
+  const tk = todayKey();
+  const tripsToday = entries.filter(e=>e.dateKey===tk).length;
+  const outNow = entries.filter(e=>e.status==='out').length;
+  const customers = new Set(entries.map(e=>(e.customer||'').trim())).size;
+
+  document.getElementById('today-date').textContent = new Date().toLocaleDateString('ar', {weekday:'long', day:'2-digit', month:'long', year:'numeric'});
+  document.getElementById('hero-stats').innerHTML = `
+    <div class="kpi"><span class="n">${tripsToday}</span><span class="l">عمليات اليوم</span></div>
+    <div class="kpi out-kpi"><span class="n">${outNow}</span><span class="l">في الخارج الآن</span></div>
+    <div class="kpi"><span class="n">${customers}</span><span class="l">زبون</span></div>
+    <div class="kpi alert-kpi"><span class="n">${alertUnionSize}</span><span class="l">تنبيهات نشطة</span></div>
+  `;
+}
+
+function renderOutList(){
+  const box = document.getElementById('out-list');
+  const outEntries = entries.filter(e=>e.status==='out').sort((a,b)=> getDepartDateTime(a)-getDepartDateTime(b));
+  document.getElementById('out-count').textContent = outEntries.length;
+  if(outEntries.length===0){
+    box.innerHTML = '<p class="empty">لا توجد آليات في الخارج حالياً.</p>';
+    return;
+  }
+  box.innerHTML = outEntries.map(e=>{
+    const elapsedMin = Math.round((new Date() - getDepartDateTime(e))/60000);
+    const isOpen = openReturnId===e.id;
+    return `
+      <div class="out-row">
+        <div class="out-info">
+          <div class="who">${escapeHtml(e.vehicle)} — ${escapeHtml(e.customer)}</div>
+          <div class="meta">${escapeHtml(e.driver)} · غادر الساعة ${e.departTime} · خارج منذ ${fmtDuration(elapsedMin)}</div>
+        </div>
+        ${isOpen ? `
+          <div class="quick-return">
+            <input type="time" id="qr-time-${e.id}" value="${nowTime()}" aria-label="وقت العودة">
+            <input type="number" id="qr-km-${e.id}" placeholder="كيلومتراج العودة" min="0" step="0.1" aria-label="كيلومتراج العودة">
+            <input type="text" id="qr-note-${e.id}" placeholder="ملاحظة (اختياري)" aria-label="ملاحظة العودة">
+            <button class="btn-primary btn-sm" data-confirm="${e.id}">تأكيد العودة</button>
+            <button class="btn-ghost btn-sm" data-cancel="${e.id}">إلغاء</button>
+          </div>
+        ` : `<button class="btn-primary btn-sm" data-open="${e.id}">تسجيل العودة</button>`}
+      </div>
+    `;
+  }).join('');
+}
+
+function renderRecent(){
+  const box = document.getElementById('recent-list');
+  const recent = [...entries].sort((a,b)=> getDepartDateTime(b)-getDepartDateTime(a)).slice(0,5);
+  if(recent.length===0){
+    box.innerHTML = '<p class="empty">لم تُسجَّل أي عملية بعد.</p>';
+    return;
+  }
+  box.innerHTML = recent.map(e=>{
+    const status = e.status==='out'
+      ? '<span class="badge badge-out">في الخارج</span>'
+      : `${fmtDuration(e._durationMin)} · ${fmtDistance(e._distance)}`;
+    return `
+    <div class="recent-item">
+      <div>
+        <div class="who">${escapeHtml(e.vehicle)} — ${escapeHtml(e.customer)}</div>
+        <div class="meta">${escapeHtml(e.driver)} · غادر ${e.departTime}</div>
+      </div>
+      <div class="meta">${status}</div>
+    </div>
+  `;}).join('');
+}
+
+function renderLogTable(timeIds, distIds){
+  const body = document.getElementById('log-table-body');
+  const sorted = [...entries].sort((a,b)=> getDepartDateTime(b)-getDepartDateTime(a));
+  document.getElementById('log-empty').hidden = sorted.length>0;
+  body.innerHTML = sorted.map(e=>{
+    const tAlert = timeIds.has(e.id), dAlert = distIds.has(e.id);
+    const rowClass = e.status==='out' ? 'is-out' : (tAlert ? 'is-alert' : (dAlert ? 'is-warn' : ''));
+    const statusLabel = e.status==='out' ? '<span class="badge badge-out">في الخارج</span>' : '<span class="badge badge-ok">مكتملة</span>';
+    return `
+    <tr class="${rowClass}">
+      <td>${statusLabel}</td>
+      <td>${escapeHtml(e.vehicle)}</td>
+      <td>${escapeHtml(e.driver)}</td>
+      <td>${escapeHtml(e.customer)}</td>
+      <td>${e.departTime}</td>
+      <td>${e.returnTime || '—'}</td>
+      <td>${e.status==='done' ? fmtDuration(e._durationMin) + (tAlert?' ⏱️⚠️':'') : 'قيد التنفيذ'}</td>
+      <td>${e.km ?? '—'}</td>
+      <td>${e.status==='done' ? fmtDistance(e._distance) + (dAlert?' 📏⚠️':'') : '—'}</td>
+      <td>${escapeHtml([e.notesOut, e.notesIn].filter(Boolean).join(' / '))}</td>
+      <td class="row-actions">
+        <button class="btn-edit" data-id="${e.id}">تعديل</button>
+        <button class="btn-delete" data-id="${e.id}">حذف</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function renderVehiclesTab(){
+  const body = document.getElementById('vehicle-table-body');
+  const sorted = [...vehicles].sort((a,b)=>a.name.localeCompare(b.name,'ar'));
+  document.getElementById('vehicle-empty').hidden = sorted.length>0;
+  body.innerHTML = sorted.map(v=>{
+    const last = lastKnownKm(v.name);
+    return `
+    <tr>
+      <td>${escapeHtml(v.name)}</td>
+      <td>${v.baselineKm}</td>
+      <td>${last!==null ? last : '—'}</td>
+      <td class="row-actions">
+        <button class="btn-edit" data-id="${v.id}">تعديل</button>
+        <button class="btn-delete" data-id="${v.id}">حذف</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function renderReports(timeIds, distIds){
+  const done = entries.filter(e=>e.status==='done');
+  const unionEntries = done.filter(e=>timeIds.has(e.id) || distIds.has(e.id))
+    .sort((a,b)=> getDepartDateTime(b)-getDepartDateTime(a));
+
+  const alertsPanel = document.getElementById('alerts-panel');
+  if(unionEntries.length===0){
+    alertsPanel.innerHTML = '<p class="empty">لا توجد رحلات متجاوزة حالياً ضمن النسب المحددة.</p>';
+  } else {
+    alertsPanel.innerHTML = unionEntries.map(e=>{
+      const tags = [];
+      if(timeIds.has(e.id)) tags.push('<span class="badge badge-alert">تجاوز وقت</span>');
+      if(distIds.has(e.id)) tags.push('<span class="badge badge-warn">تجاوز مسافة</span>');
+      return `
+      <div class="alert-row">
+        <span>${escapeHtml(e.vehicle)} — ${escapeHtml(e.customer)} — ${escapeHtml(e.driver)} <span class="tags">${tags.join('')}</span></span>
+        <span>${fmtDuration(e._durationMin)} · ${fmtDistance(e._distance)} (غادر ${e.departTime})</span>
+      </div>`;
+    }).join('');
+  }
+
+  const byVehicle = {};
+  done.forEach(e=>{
+    const key=(e.vehicle||'').trim();
+    if(!byVehicle[key]) byVehicle[key]=[];
+    byVehicle[key].push(e);
+  });
+  const vBox = document.getElementById('report-vehicles');
+  const vKeys = Object.keys(byVehicle).sort((a,b)=>a.localeCompare(b,'ar'));
+  if(vKeys.length===0){
+    vBox.innerHTML = '<p class="empty">لا توجد عمليات مكتملة بعد لحساب المسافات.</p>';
+  } else {
+    vBox.innerHTML = vKeys.map(key=>{
+      const list = byVehicle[key].sort((a,b)=> getDepartDateTime(a)-getDepartDateTime(b));
+      const totalDist = list.reduce((s,e)=> s + (e._distance||0), 0);
+      const rows = list.map(e=>`
+        <tr class="${timeIds.has(e.id)?'is-alert':(distIds.has(e.id)?'is-warn':'')}">
+          <td>${e.departTime}</td>
+          <td>${escapeHtml(e.customer)}</td>
+          <td>${fmtDuration(e._durationMin)} ${timeIds.has(e.id)?'⏱️⚠️':''}</td>
+          <td>${fmtDistance(e._distance)} ${distIds.has(e.id)?'📏⚠️':''}</td>
+        </tr>
+      `).join('');
+      return `
+        <div class="group">
+          <div class="group-head"><span>${escapeHtml(key)}</span>
+            <span class="total">${list.length} عملية · إجمالي المسافة ${totalDist.toFixed(1)} كم</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>المغادرة</th><th>الزبون</th><th>المدة</th><th>المسافة</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  const byCustomer = {};
+  done.forEach(e=>{
+    const key=(e.customer||'').trim();
+    if(!byCustomer[key]) byCustomer[key]=[];
+    byCustomer[key].push(e);
+  });
+  const cBox = document.getElementById('report-customers');
+  const cKeys = Object.keys(byCustomer).sort((a,b)=>a.localeCompare(b,'ar'));
+  if(cKeys.length===0){
+    cBox.innerHTML = '<p class="empty">لا توجد عمليات مكتملة بعد للمقارنة.</p>';
+  } else {
+    cBox.innerHTML = cKeys.map(key=>{
+      const list = byCustomer[key];
+      const avgDur = list.reduce((s,e)=>s+e._durationMin,0)/list.length;
+      const validDist = list.filter(e=>e._distance!==null && e._distance!==undefined && !isNaN(e._distance));
+      const avgDist = validDist.length ? validDist.reduce((s,e)=>s+e._distance,0)/validDist.length : null;
+      const byVeh = {};
+      list.forEach(e=>{
+        const vk=(e.vehicle||'').trim();
+        if(!byVeh[vk]) byVeh[vk]={trips:0,durSum:0,distSum:0,tAlerts:0,dAlerts:0};
+        byVeh[vk].trips++;
+        byVeh[vk].durSum += e._durationMin;
+        byVeh[vk].distSum += (e._distance||0);
+        if(timeIds.has(e.id)) byVeh[vk].tAlerts++;
+        if(distIds.has(e.id)) byVeh[vk].dAlerts++;
+      });
+      const rows = Object.entries(byVeh).map(([vk,s])=>`
+        <tr>
+          <td>${escapeHtml(vk)}</td>
+          <td>${s.trips}</td>
+          <td>${fmtDuration(Math.round(s.durSum/s.trips))}</td>
+          <td>${s.distSum.toFixed(1)} كم</td>
+          <td>${s.tAlerts>0 ? `<span class="badge badge-alert">${s.tAlerts}</span>` : `<span class="badge badge-ok">0</span>`}</td>
+          <td>${s.dAlerts>0 ? `<span class="badge badge-warn">${s.dAlerts}</span>` : `<span class="badge badge-ok">0</span>`}</td>
+        </tr>
+      `).join('');
+      return `
+        <div class="group">
+          <div class="group-head"><span>${escapeHtml(key)}</span>
+            <span class="total">${list.length} عملية · متوسط المدة ${fmtDuration(Math.round(avgDur))} · متوسط المسافة ${avgDist!==null?avgDist.toFixed(1)+' كم':'—'}</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>الآلية</th><th>عدد الرحلات</th><th>متوسط المدة</th><th>إجمالي المسافة</th><th>تجاوز وقت</th><th>تجاوز مسافة</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>`;
+    }).join('');
+  }
+}
+
+function render(){
+  enrichEntries();
+  const pctTime = Number(document.getElementById('pct-threshold').value || 20);
+  const pctDist = Number(document.getElementById('pct-threshold-dist').value || 20);
+  const timeIds = getTimeAlertIds(pctTime);
+  const distIds = getDistanceAlertIds(pctDist);
+  const unionSize = new Set([...timeIds, ...distIds]).size;
+
+  renderHero(unionSize);
+  renderDatalists();
+  renderOutList();
+  renderRecent();
+  renderVehiclesTab();
+  renderLogTable(timeIds, distIds);
+  renderReports(timeIds, distIds);
+}
+
+function switchTab(name){
+  document.querySelectorAll('.tab').forEach(b=> b.classList.toggle('active', b.dataset.tab===name));
+  document.querySelectorAll('.tab-panel').forEach(p=> p.classList.toggle('active', p.id==='tab-'+name));
+}
+
+function resetFormState(){
+  document.getElementById('entry-form').reset();
+  document.getElementById('edit-id').value = '';
+  document.getElementById('form-title').textContent = 'تسجيل مغادرة جديدة';
+  document.getElementById('submit-btn').textContent = 'تسجيل المغادرة';
+  document.getElementById('cancel-edit').hidden = true;
+  document.getElementById('form-error').hidden = true;
+  document.getElementById('return-fields-block').hidden = true;
+  document.getElementById('f-depart').value = nowTime();
+}
+
+function startEdit(id){
+  const e = entries.find(x=>x.id===id);
+  if(!e) return;
+  document.getElementById('edit-id').value = e.id;
+  document.getElementById('f-vehicle').value = e.vehicle;
+  document.getElementById('f-driver').value = e.driver;
+  document.getElementById('f-customer').value = e.customer;
+  document.getElementById('f-depart').value = e.departTime;
+  document.getElementById('f-notes-out').value = e.notesOut || '';
+  document.getElementById('f-return').value = e.returnTime || '';
+  document.getElementById('f-km').value = e.km ?? '';
+  document.getElementById('f-notes-in').value = e.notesIn || '';
+  document.getElementById('form-title').textContent = 'تعديل عملية';
+  document.getElementById('submit-btn').textContent = 'حفظ التعديلات';
+  document.getElementById('cancel-edit').hidden = false;
+  document.getElementById('return-fields-block').hidden = false;
+  switchTab('entry');
+}
+
+async function deleteEntry(id){
+  if(!confirm('حذف هذه العملية من السجل؟')) return;
+  entries = entries.filter(e=>e.id!==id);
+  await persist();
+  render();
+}
+
+async function confirmReturn(id){
+  const timeVal = document.getElementById(`qr-time-${id}`).value;
+  const kmVal = parseFloat(document.getElementById(`qr-km-${id}`).value);
+  const noteVal = document.getElementById(`qr-note-${id}`).value.trim();
+  if(!timeVal || isNaN(kmVal)){
+    alert('الرجاء إدخال وقت العودة وكيلومتراج العودة.');
+    return;
+  }
+  const idx = entries.findIndex(e=>e.id===id);
+  if(idx<0) return;
+  entries[idx] = {...entries[idx], returnTime:timeVal, km:kmVal, notesIn:noteVal, status:'done'};
+  openReturnId = null;
+  await persist();
+  render();
+}
+
+function resetVehicleForm(){
+  document.getElementById('vehicle-form').reset();
+  document.getElementById('v-edit-id').value = '';
+  document.getElementById('vehicle-form-title').textContent = 'تسجيل آلية جديدة';
+  document.getElementById('v-submit-btn').textContent = 'حفظ الآلية';
+  document.getElementById('v-cancel-edit').hidden = true;
+}
+function startEditVehicle(id){
+  const v = vehicles.find(x=>x.id===id);
+  if(!v) return;
+  document.getElementById('v-edit-id').value = v.id;
+  document.getElementById('v-name').value = v.name;
+  document.getElementById('v-km').value = v.baselineKm;
+  document.getElementById('vehicle-form-title').textContent = 'تعديل بيانات آلية';
+  document.getElementById('v-submit-btn').textContent = 'حفظ التعديلات';
+  document.getElementById('v-cancel-edit').hidden = false;
+}
+async function deleteVehicle(id){
+  if(!confirm('حذف هذه الآلية من قائمة الآليات المسجّلة؟ (لن يؤثر هذا على العمليات السابقة)')) return;
+  vehicles = vehicles.filter(v=>v.id!==id);
+  await persistVehicles();
+  render();
+}
+
+function bindEvents(){
+  document.querySelectorAll('.tab').forEach(b=>{
+    b.addEventListener('click', ()=> switchTab(b.dataset.tab));
+  });
+
+  document.getElementById('entry-form').addEventListener('submit', async (ev)=>{
+    ev.preventDefault();
+    const errBox = document.getElementById('form-error');
+    errBox.hidden = true;
+
+    const vehicle = document.getElementById('f-vehicle').value.trim();
+    const driver = document.getElementById('f-driver').value.trim();
+    const customer = document.getElementById('f-customer').value.trim();
+    const departTime = document.getElementById('f-depart').value;
+    const notesOut = document.getElementById('f-notes-out').value.trim();
+
+    if(!vehicle||!driver||!customer||!departTime){
+      errBox.textContent = 'الرجاء تعبئة جميع الحقول المطلوبة.';
+      errBox.hidden = false;
+      return;
+    }
+
+    const editId = document.getElementById('edit-id').value;
+    const returnBlockVisible = !document.getElementById('return-fields-block').hidden;
+    let returnTime = '', km = NaN, notesIn = '';
+    if(returnBlockVisible){
+      returnTime = document.getElementById('f-return').value;
+      km = parseFloat(document.getElementById('f-km').value);
+      notesIn = document.getElementById('f-notes-in').value.trim();
+      if((returnTime && isNaN(km)) || (!returnTime && !isNaN(km))){
+        errBox.textContent = 'أدخل وقت العودة وكيلومتراج العودة معًا، أو اترك كليهما فارغين.';
+        errBox.hidden = false;
+        return;
+      }
+    }
+    const isCompleting = returnTime && !isNaN(km);
+
+    if(editId){
+      const idx = entries.findIndex(x=>x.id===editId);
+      if(idx>-1){
+        entries[idx] = {
+          ...entries[idx], vehicle, driver, customer, departTime, notesOut,
+          returnTime: isCompleting ? returnTime : (returnBlockVisible ? null : entries[idx].returnTime),
+          km: isCompleting ? km : (returnBlockVisible ? null : entries[idx].km),
+          notesIn: isCompleting ? notesIn : (returnBlockVisible ? '' : entries[idx].notesIn),
+          status: isCompleting ? 'done' : 'out'
+        };
+      }
+    } else {
+      entries.push({
+        id: uid(), vehicle, driver, customer,
+        dateKey: todayKey(), departTime, notesOut,
+        returnTime:null, km:null, notesIn:'',
+        status:'out',
+        createdAt: new Date().toISOString()
+      });
+    }
+    await persist();
+    resetFormState();
+    render();
+  });
+
+  document.getElementById('cancel-edit').addEventListener('click', resetFormState);
+
+  document.getElementById('log-table-body').addEventListener('click', (ev)=>{
+    const btn = ev.target.closest('button');
+    if(!btn) return;
+    const id = btn.dataset.id;
+    if(btn.classList.contains('btn-edit')) startEdit(id);
+    else if(btn.classList.contains('btn-delete')) deleteEntry(id);
+  });
+
+  document.getElementById('out-list').addEventListener('click', (ev)=>{
+    const btn = ev.target.closest('button');
+    if(!btn) return;
+    if(btn.dataset.open){ openReturnId = btn.dataset.open; render(); }
+    else if(btn.dataset.cancel){ openReturnId = null; render(); }
+    else if(btn.dataset.confirm){ confirmReturn(btn.dataset.confirm); }
+  });
+
+  document.getElementById('pct-threshold').addEventListener('input', render);
+  document.getElementById('pct-threshold-dist').addEventListener('input', render);
+
+  document.getElementById('vehicle-form').addEventListener('submit', async (ev)=>{
+    ev.preventDefault();
+    const name = document.getElementById('v-name').value.trim();
+    const km = parseFloat(document.getElementById('v-km').value);
+    if(!name || isNaN(km)) return;
+    const editId = document.getElementById('v-edit-id').value;
+    if(editId){
+      const idx = vehicles.findIndex(v=>v.id===editId);
+      if(idx>-1) vehicles[idx] = {...vehicles[idx], name, baselineKm:km};
+    } else {
+      if(vehicles.some(v=>v.name.trim()===name)){
+        alert('هذه الآلية مسجلة مسبقًا.');
+        return;
+      }
+      vehicles.push({id:uid(), name, baselineKm:km, registeredAt:new Date().toISOString()});
+    }
+    await persistVehicles();
+    resetVehicleForm();
+    render();
+  });
+  document.getElementById('v-cancel-edit').addEventListener('click', resetVehicleForm);
+  document.getElementById('vehicle-table-body').addEventListener('click', (ev)=>{
+    const btn = ev.target.closest('button');
+    if(!btn) return;
+    const id = btn.dataset.id;
+    if(btn.classList.contains('btn-edit')) startEditVehicle(id);
+    else if(btn.classList.contains('btn-delete')) deleteVehicle(id);
+  });
+}
+
+(async function init(){
+  await Promise.all([loadEntries(), loadVehicles()]);
+  bindEvents();
+  document.getElementById('f-depart').value = nowTime();
+
+  if(reportsOnlyMode){
+    const banner = document.createElement('div');
+    banner.className = 'ro-banner';
+    banner.textContent = 'وضع العرض فقط — البيانات تُحدَّث تلقائيًا كل 30 ثانية';
+    document.querySelector('.app').prepend(banner);
+    document.querySelector('.tabs').style.display = 'none';
+    document.querySelectorAll('.tab-panel').forEach(p=> p.classList.toggle('active', p.id==='tab-reports'));
+    document.title = 'تقارير بوابة المجبل';
+    setInterval(async ()=>{
+      await Promise.all([loadEntries(), loadVehicles()]);
+      render();
+    }, 30000);
+  }
+
+  render();
+})();
+</script>
+</body>
+</html>

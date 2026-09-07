@@ -1,0 +1,21 @@
+{
+  "name": "gate-log",
+  "version": "2.0.0",
+  "description": "سجل بوابة المجبل — تسجيل حركة الآليات مع قاعدة بيانات MongoDB",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"شغّل الخادم على المنفذ 8899 ثم: node test/api.test.js <gate-pw> <mgr-pw>\""
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "mongodb": "^7.6.0",
+    "mssql": "^12.7.0"
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "^11.2.0"
+  }
+}
