@@ -196,6 +196,9 @@ async function init(options) {
   await ensureColumn('sessions', 'user_id', 'user_id NVARCHAR(64) NULL');
   await ensureColumn('sessions', 'username', 'username NVARCHAR(120) NULL');
   await ensureColumn('audit', 'username', "username NVARCHAR(120) NOT NULL CONSTRAINT df_audit_username DEFAULT N'-'");
+  await ensureColumn('vehicles', 'type', 'type NVARCHAR(32) NULL');
+  await ensureColumn('vehicles', 'fuel_tank_qty', 'fuel_tank_qty FLOAT NULL');
+  await ensureColumn('entries', 'load_qty', 'load_qty FLOAT NULL');
 
   const initialPasswords = await seedUsers(options && options.adminPassword);
   const dbName = (typeof cfg === 'string') ? '(من رابط الاتصال)' : cfg.database;
@@ -312,7 +315,64 @@ async function createSchema() {
 
     `IF NOT EXISTS (SELECT 1 FROM sys.indexes
                     WHERE name='ix_audit_at' AND object_id=OBJECT_ID('dbo.audit'))
-     CREATE INDEX ix_audit_at ON dbo.audit(at DESC)`
+     CREATE INDEX ix_audit_at ON dbo.audit(at DESC)`,
+
+    // سجلّ السائقين. allowed_types نص JSON لمصفوفة رموز الأنواع، استشاري لا
+    // يمنع البوابة من كتابة أي اسم سائق. created_at نص ISO لا DATETIME2، اتساقًا
+    // مع نفس القرار في users.created_at أعلاه.
+    `IF OBJECT_ID('dbo.drivers','U') IS NULL
+     CREATE TABLE dbo.drivers (
+       id            NVARCHAR(64)  NOT NULL PRIMARY KEY,
+       name          NVARCHAR(200) NOT NULL,
+       allowed_types NVARCHAR(400) NOT NULL CONSTRAINT df_drivers_allowed_types DEFAULT N'[]',
+       created_at    NVARCHAR(40)  NOT NULL
+     )`,
+
+    `IF NOT EXISTS (SELECT 1 FROM sys.indexes
+                    WHERE name='ux_drivers_name' AND object_id=OBJECT_ID('dbo.drivers'))
+     CREATE UNIQUE INDEX ux_drivers_name ON dbo.drivers(name)`,
+
+    // تعبئة آلية من المازوت: قراءة توضيحية لا تُفرض عليها قاعدة عدم النقصان
+    // (كيلومتراج الآلية الحقيقي يُتتبَّع من جدول entries). عمود الوقت يُحاط
+    // بأقواس مربّعة لأن TIME اسم نوع بيانات في SQL Server، اتساقًا مع نفس
+    // الاحتراز على [key]/[value] في جدول settings أعلاه.
+    `IF OBJECT_ID('dbo.fuel_fills','U') IS NULL
+     CREATE TABLE dbo.fuel_fills (
+       id         NVARCHAR(64)  NOT NULL PRIMARY KEY,
+       vehicle    NVARCHAR(200) NOT NULL,
+       km         FLOAT         NOT NULL,
+       qty        FLOAT         NOT NULL,
+       work_hours FLOAT         NULL,
+       date_key   NVARCHAR(10)  NOT NULL,
+       [time]     NVARCHAR(5)   NOT NULL,
+       created_at NVARCHAR(40)  NOT NULL,
+       created_by NVARCHAR(120) NULL
+     )`,
+
+    `IF NOT EXISTS (SELECT 1 FROM sys.indexes
+                    WHERE name='ix_fuel_fills_date' AND object_id=OBJECT_ID('dbo.fuel_fills'))
+     CREATE INDEX ix_fuel_fills_date ON dbo.fuel_fills(date_key DESC, [time] DESC)`,
+
+    `IF NOT EXISTS (SELECT 1 FROM sys.indexes
+                    WHERE name='ix_fuel_fills_vehicle' AND object_id=OBJECT_ID('dbo.fuel_fills'))
+     CREATE INDEX ix_fuel_fills_vehicle ON dbo.fuel_fills(vehicle)`,
+
+    // تعبئة الخزان الرئيسي: قراءة عدّاد تراكمي واحدة للمنشأة كلها، بنفس مبدأ
+    // كيلومتراج الآليات — تُخزَّن القراءة المطلقة لا الفرق، والفرق يُحسَب عند
+    // الحاجة (التقارير) من الفرق عن آخر قراءة أو عن الرصيد الابتدائي.
+    `IF OBJECT_ID('dbo.fuel_supply','U') IS NULL
+     CREATE TABLE dbo.fuel_supply (
+       id            NVARCHAR(64)  NOT NULL PRIMARY KEY,
+       meter_reading FLOAT         NOT NULL,
+       date_key      NVARCHAR(10)  NOT NULL,
+       [time]        NVARCHAR(5)   NOT NULL,
+       created_at    NVARCHAR(40)  NOT NULL,
+       created_by    NVARCHAR(120) NULL
+     )`,
+
+    `IF NOT EXISTS (SELECT 1 FROM sys.indexes
+                    WHERE name='ix_fuel_supply_date' AND object_id=OBJECT_ID('dbo.fuel_supply'))
+     CREATE INDEX ix_fuel_supply_date ON dbo.fuel_supply(date_key DESC, [time] DESC)`
   ];
 
   for (const stmt of statements) {
@@ -573,6 +633,7 @@ function entryOut(r) {
     customer: r.customer, departTime: r.depart_time, notesOut: r.notes_out,
     returnDate: r.return_date, returnTime: r.return_time,
     km: r.km === null || r.km === undefined ? null : Number(r.km),
+    loadQty: r.load_qty === null || r.load_qty === undefined ? null : Number(r.load_qty),
     notesIn: r.notes_in, status: r.status,
     createdAt: r.created_at, updatedAt: r.updated_at,
     clientRef: r.client_ref, returnClientRef: r.return_client_ref
@@ -581,7 +642,18 @@ function entryOut(r) {
 
 function vehicleOut(r) {
   if (!r) return null;
-  return { id: r.id, name: r.name, baselineKm: Number(r.baseline_km), registeredAt: r.registered_at };
+  return {
+    id: r.id, name: r.name, baselineKm: Number(r.baseline_km), registeredAt: r.registered_at,
+    type: r.type || null,
+    fuelTankQty: r.fuel_tank_qty === null || r.fuel_tank_qty === undefined ? null : Number(r.fuel_tank_qty)
+  };
+}
+
+function driverOut(r) {
+  if (!r) return null;
+  let allowedTypes = [];
+  try { allowedTypes = JSON.parse(r.allowed_types || '[]'); } catch (e) { allowedTypes = []; }
+  return { id: r.id, name: r.name, allowedTypes, createdAt: r.created_at };
 }
 
 /* ---------------------------------------------------------- الاستعلامات */
@@ -658,11 +730,12 @@ async function insertEntry(data) {
   try {
     await q(`INSERT INTO dbo.entries
               (id, date_key, vehicle, driver, customer, depart_time, notes_out,
-               return_date, return_time, km, notes_in, status, created_at, updated_at, client_ref)
-             VALUES (@id,@dk,@v,@d,@c,@dt,@no,NULL,NULL,NULL,N'',N'out',@ca,@ua,@cr)`,
+               return_date, return_time, km, load_qty, notes_in, status, created_at, updated_at, client_ref)
+             VALUES (@id,@dk,@v,@d,@c,@dt,@no,NULL,NULL,NULL,@lq,N'',N'out',@ca,@ua,@cr)`,
       [['id', NV(64), id], ['dk', NV(10), data.dateKey], ['v', NV(120), data.vehicle],
        ['d', NV(120), data.driver], ['c', NV(120), data.customer],
        ['dt', NV(5), data.departTime], ['no', NV(400), data.notesOut || ''],
+       ['lq', FLT, data.loadQty === undefined || data.loadQty === null ? null : Number(data.loadQty)],
        ['ca', NV(40), now], ['ua', NV(40), now],
        ['cr', NV(64), data.clientRef || null]]);
   } catch (err) {
@@ -714,12 +787,13 @@ async function updateEntry(id, data) {
 
   await q(`UPDATE dbo.entries
            SET date_key=@dk, vehicle=@v, driver=@d, customer=@c, depart_time=@dt,
-               notes_out=@no, return_date=@rd, return_time=@rt, km=@km,
+               notes_out=@no, load_qty=@lq, return_date=@rd, return_time=@rt, km=@km,
                notes_in=@ni, status=@st, updated_at=@ua
            WHERE id=@id`,
     [['dk', NV(10), data.dateKey], ['v', NV(120), data.vehicle],
      ['d', NV(120), data.driver], ['c', NV(120), data.customer],
      ['dt', NV(5), data.departTime], ['no', NV(400), data.notesOut || ''],
+     ['lq', FLT, data.loadQty === undefined || data.loadQty === null || data.loadQty === '' ? null : Number(data.loadQty)],
      ['rd', NV(10), done ? (data.returnDate || data.dateKey) : null],
      ['rt', NV(5), done ? data.returnTime : null],
      ['km', FLT, done ? Number(data.km) : null],
@@ -735,11 +809,14 @@ async function deleteEntry(id) {
   return ((r.rowsAffected && r.rowsAffected[0]) || 0) > 0;
 }
 
-async function insertVehicle(name, baselineKm) {
+async function insertVehicle(name, baselineKm, type, fuelTankQty) {
   const id = newId('v');
-  await q('INSERT INTO dbo.vehicles (id, name, baseline_km, registered_at) VALUES (@id,@n,@km,@r)',
+  await q(`INSERT INTO dbo.vehicles (id, name, baseline_km, type, fuel_tank_qty, registered_at)
+           VALUES (@id,@n,@km,@t,@f,@r)`,
     [['id', NV(64), id], ['n', NV(120), String(name).trim()],
-     ['km', FLT, Number(baselineKm)], ['r', NV(40), new Date().toISOString()]]);
+     ['km', FLT, Number(baselineKm)], ['t', NV(32), type || null],
+     ['f', FLT, fuelTankQty === undefined || fuelTankQty === null || fuelTankQty === '' ? null : Number(fuelTankQty)],
+     ['r', NV(40), new Date().toISOString()]]);
   return getVehicle(id);
 }
 
@@ -747,7 +824,7 @@ async function insertVehicle(name, baselineKm) {
  * تعديل آلية. إعادة التسمية تُحدِّث كل سجلاتها داخل معاملة واحدة، وإلا انفصل
  * تاريخها القديم عن اسمها الجديد وضاعت حسابات المسافة.
  */
-async function updateVehicle(id, name, baselineKm) {
+async function updateVehicle(id, name, baselineKm, type, fuelTankQty) {
   const old = await one('SELECT * FROM dbo.vehicles WHERE id = @id', [['id', NV(64), String(id)]]);
   if (!old) return null;
   const newName = String(name).trim();
@@ -755,8 +832,11 @@ async function updateVehicle(id, name, baselineKm) {
   const tx = new sql.Transaction(pool);
   await tx.begin();
   try {
-    await q('UPDATE dbo.vehicles SET name=@n, baseline_km=@km WHERE id=@id',
-      [['n', NV(120), newName], ['km', FLT, Number(baselineKm)], ['id', NV(64), String(id)]], tx);
+    await q('UPDATE dbo.vehicles SET name=@n, baseline_km=@km, type=@t, fuel_tank_qty=@f WHERE id=@id',
+      [['n', NV(120), newName], ['km', FLT, Number(baselineKm)],
+       ['t', NV(32), type || null],
+       ['f', FLT, fuelTankQty === undefined || fuelTankQty === null || fuelTankQty === '' ? null : Number(fuelTankQty)],
+       ['id', NV(64), String(id)]], tx);
     if (old.name !== newName) {
       await q('UPDATE dbo.entries SET vehicle=@n, updated_at=@ua WHERE vehicle=@o',
         [['n', NV(120), newName], ['ua', NV(40), new Date().toISOString()],
@@ -773,6 +853,148 @@ async function updateVehicle(id, name, baselineKm) {
 async function deleteVehicle(id) {
   const r = await q('DELETE FROM dbo.vehicles WHERE id = @id', [['id', NV(64), String(id)]]);
   return ((r.rowsAffected && r.rowsAffected[0]) || 0) > 0;
+}
+
+/* ---------------------------------------------------------- السائقون */
+
+async function listDrivers() {
+  return (await all('SELECT * FROM dbo.drivers ORDER BY name')).map(driverOut);
+}
+
+async function getDriverByName(name) {
+  return driverOut(await one('SELECT * FROM dbo.drivers WHERE name = @n',
+    [['n', NV(200), String(name).trim()]]));
+}
+
+async function insertDriver(data) {
+  const id = newId('d');
+  try {
+    await q('INSERT INTO dbo.drivers (id, name, allowed_types, created_at) VALUES (@id,@n,@a,@ca)',
+      [['id', NV(64), id], ['n', NV(200), String(data.name).trim()],
+       ['a', NV(400), JSON.stringify(data.allowedTypes || [])],
+       ['ca', NV(40), new Date().toISOString()]]);
+  } catch (err) {
+    if (isDuplicateError(err)) {
+      const e = new Error('هذا السائق مسجّل مسبقًا.');
+      e.duplicateDriverName = true;
+      throw e;
+    }
+    throw err;
+  }
+  return driverOut(await one('SELECT * FROM dbo.drivers WHERE id = @id', [['id', NV(64), id]]));
+}
+
+async function updateDriver(id, data) {
+  const existing = await one('SELECT * FROM dbo.drivers WHERE id = @id', [['id', NV(64), String(id)]]);
+  if (!existing) return null;
+  const newName = String(data.name).trim();
+  try {
+    await q('UPDATE dbo.drivers SET name = @n, allowed_types = @a WHERE id = @id',
+      [['n', NV(200), newName], ['a', NV(400), JSON.stringify(data.allowedTypes || [])],
+       ['id', NV(64), String(id)]]);
+  } catch (err) {
+    if (isDuplicateError(err)) {
+      const e = new Error('يوجد سائق آخر بنفس الاسم.');
+      e.duplicateDriverName = true;
+      throw e;
+    }
+    throw err;
+  }
+  return driverOut(await one('SELECT * FROM dbo.drivers WHERE id = @id', [['id', NV(64), String(id)]]));
+}
+
+async function deleteDriver(id) {
+  const r = await q('DELETE FROM dbo.drivers WHERE id = @id', [['id', NV(64), String(id)]]);
+  return ((r.rowsAffected && r.rowsAffected[0]) || 0) > 0;
+}
+
+/* ---------------------------------------------------------- وحدة المازوت */
+
+function fuelFillOut(r) {
+  if (!r) return null;
+  return {
+    id: r.id, vehicle: r.vehicle, km: Number(r.km), qty: Number(r.qty),
+    workHours: r.work_hours === null || r.work_hours === undefined ? null : Number(r.work_hours),
+    dateKey: r.date_key, time: r.time, createdAt: r.created_at, createdBy: r.created_by
+  };
+}
+
+function fuelSupplyOut(r) {
+  if (!r) return null;
+  return {
+    id: r.id, meterReading: Number(r.meter_reading),
+    dateKey: r.date_key, time: r.time, createdAt: r.created_at, createdBy: r.created_by
+  };
+}
+
+async function listFuelFills(days) {
+  const n = Number(days);
+  if (!n || n <= 0) {
+    return (await all(`SELECT * FROM dbo.fuel_fills
+                       ORDER BY date_key DESC, [time] DESC`)).map(fuelFillOut);
+  }
+  const from = new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+  return (await all(`SELECT * FROM dbo.fuel_fills
+                     WHERE date_key >= @from
+                     ORDER BY date_key DESC, [time] DESC`,
+    [['from', NV(10), from]])).map(fuelFillOut);
+}
+
+async function insertFuelFill(data) {
+  const id = newId('f');
+  await q(`INSERT INTO dbo.fuel_fills (id, vehicle, km, qty, work_hours, date_key, [time], created_at, created_by)
+           VALUES (@id,@v,@km,@qty,@wh,@dk,@t,@ca,@cb)`,
+    [['id', NV(64), id], ['v', NV(200), String(data.vehicle).trim()],
+     ['km', FLT, Number(data.km)], ['qty', FLT, Number(data.qty)],
+     ['wh', FLT, data.workHours === undefined || data.workHours === null || data.workHours === '' ? null : Number(data.workHours)],
+     ['dk', NV(10), data.dateKey], ['t', NV(5), data.time],
+     ['ca', NV(40), new Date().toISOString()], ['cb', NV(120), data.createdBy || null]]);
+  return fuelFillOut(await one('SELECT * FROM dbo.fuel_fills WHERE id = @id', [['id', NV(64), id]]));
+}
+
+async function listFuelSupply(days) {
+  const n = Number(days);
+  if (!n || n <= 0) {
+    return (await all(`SELECT * FROM dbo.fuel_supply
+                       ORDER BY date_key DESC, [time] DESC`)).map(fuelSupplyOut);
+  }
+  const from = new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+  return (await all(`SELECT * FROM dbo.fuel_supply
+                     WHERE date_key >= @from
+                     ORDER BY date_key DESC, [time] DESC`,
+    [['from', NV(10), from]])).map(fuelSupplyOut);
+}
+
+async function insertFuelSupply(data) {
+  const id = newId('s');
+  await q(`INSERT INTO dbo.fuel_supply (id, meter_reading, date_key, [time], created_at, created_by)
+           VALUES (@id,@mr,@dk,@t,@ca,@cb)`,
+    [['id', NV(64), id], ['mr', FLT, Number(data.meterReading)],
+     ['dk', NV(10), data.dateKey], ['t', NV(5), data.time],
+     ['ca', NV(40), new Date().toISOString()], ['cb', NV(120), data.createdBy || null]]);
+  return fuelSupplyOut(await one('SELECT * FROM dbo.fuel_supply WHERE id = @id', [['id', NV(64), id]]));
+}
+
+// آخر قراءة عدّاد للخزان — نفس دور lastKmForVehicle، لكن لعدّاد واحد للمنشأة كلها.
+async function lastFuelMeterReading() {
+  const r = await one(`SELECT TOP 1 meter_reading FROM dbo.fuel_supply
+                       ORDER BY date_key DESC, [time] DESC, created_at DESC`);
+  if (r && r.meter_reading !== null && r.meter_reading !== undefined) return Number(r.meter_reading);
+  const baseline = await getFuelBaseline();
+  return baseline ? baseline.initialMeter : null;
+}
+
+async function getFuelBaseline() {
+  const qty = await getSetting('fuel_initial_qty');
+  const meter = await getSetting('fuel_initial_meter');
+  if (qty === null || meter === null) return null;
+  return { initialQty: Number(qty), initialMeter: Number(meter) };
+}
+
+async function setFuelBaseline(initialQty, initialMeter) {
+  await setSetting('fuel_initial_qty', Number(initialQty));
+  await setSetting('fuel_initial_meter', Number(initialMeter));
+  return getFuelBaseline();
 }
 
 /* ------------------------------------------------- النسخ الاحتياطي */
@@ -808,5 +1030,8 @@ module.exports = {
   listVehicles, listEntries, getEntry, getEntryByClientRef, getVehicle, getVehicleByName,
   lastKmForVehicle, vehicleIsOut, countEntriesForVehicle,
   insertEntry, closeEntry, updateEntry, deleteEntry,
-  insertVehicle, updateVehicle, deleteVehicle
+  insertVehicle, updateVehicle, deleteVehicle,
+  listDrivers, getDriverByName, insertDriver, updateDriver, deleteDriver,
+  insertFuelFill, listFuelFills, insertFuelSupply, listFuelSupply,
+  lastFuelMeterReading, getFuelBaseline, setFuelBaseline
 };

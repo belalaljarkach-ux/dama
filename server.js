@@ -100,6 +100,7 @@ const RE_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const RE_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 const ROLES = ['gate', 'fleet_manager', 'fuel', 'admin', 'fuel_warehouse_manager'];
+const VEHICLE_TYPES = ['gabbala', 'pump', 'service', 'silo'];
 
 function str(v, max) {
   return String(v === undefined || v === null ? '' : v).trim().slice(0, max || 120);
@@ -133,6 +134,20 @@ function requireKm(v, label) {
   return n;
 }
 
+function requireVehicleType(v) {
+  const s = str(v, 32);
+  if (!VEHICLE_TYPES.includes(s)) throw badRequest('نوع الآلية غير معروف.');
+  return s;
+}
+
+// رقم اختياري: فارغ يعني null (لا قيمة)، وإلا يجب أن يكون رقمًا منطقيًا.
+function optionalNumber(v, label) {
+  if (v === undefined || v === null || v === '') return null;
+  const n = Number(v);
+  if (!isFinite(n) || n < 0) throw badRequest(`قيمة «${label}» غير منطقية.`);
+  return n;
+}
+
 /* --------------------------------------------------------------- الجلسة */
 
 async function auth(req) {
@@ -159,11 +174,12 @@ function csvCell(v) {
 
 function entriesCsv(rows) {
   const head = ['المعرّف', 'التاريخ', 'الآلية', 'السائق', 'الزبون', 'وقت المغادرة',
-                'ملاحظة الخروج', 'تاريخ العودة', 'وقت العودة', 'كيلومتراج العودة',
+                'ملاحظة الخروج', 'كمية التحميل', 'تاريخ العودة', 'وقت العودة', 'كيلومتراج العودة',
                 'ملاحظة العودة', 'الحالة', 'أُنشئت في'];
   const lines = [head.join(',')];
   rows.forEach(e => lines.push([
     e.id, e.dateKey, e.vehicle, e.driver, e.customer, e.departTime, e.notesOut,
+    e.loadQty === null || e.loadQty === undefined ? '' : e.loadQty,
     e.returnDate || '', e.returnTime || '', e.km === null ? '' : e.km,
     e.notesIn, e.status === 'done' ? 'مكتملة' : 'في الخارج', e.createdAt
   ].map(csvCell).join(',')));
@@ -238,6 +254,10 @@ async function route(req, res, url) {
       username: actor.username,
       entries: await db.listEntries(days),
       vehicles: await db.listVehicles(),
+      drivers: await db.listDrivers(),
+      fuelFills: await db.listFuelFills(days),
+      fuelSupply: await db.listFuelSupply(days),
+      fuelBaseline: await db.getFuelBaseline(),
       windowDays: days,
       serverTime: new Date().toISOString()
     });
@@ -265,9 +285,14 @@ async function route(req, res, url) {
     const departTime = requireTime(b.departTime, 'وقت المغادرة');
 
     // الآلية يجب أن تكون مسجّلة، وإلا استحال حساب المسافة من أول رحلة.
-    if (!await db.getVehicleByName(vehicle)) {
+    const vehicleRow = await db.getVehicleByName(vehicle);
+    if (!vehicleRow) {
       return fail(res, 400, `الآلية «${vehicle}» غير مسجّلة. يسجّلها المدير من تبويب «الآليات» أولًا.`);
     }
+    // كمية التحميل تخصّ الجبالات فقط — مطلوبة لها، ومُهملة لأي نوع آخر.
+    const loadQty = vehicleRow.type === 'gabbala'
+      ? requireKm(b.loadQty, 'كمية التحميل')
+      : null;
     // لا يمكن خروج آلية هي أصلًا في الخارج — يمنع الصفوف المكرّرة عند
     // استخدام أكثر من جهاز على البوابة.
     const already = await db.vehicleIsOut(vehicle);
@@ -285,7 +310,7 @@ async function route(req, res, url) {
     let entry;
     try {
       entry = await db.insertEntry({
-        vehicle, driver, customer, dateKey, departTime,
+        vehicle, driver, customer, dateKey, departTime, loadQty,
         notesOut: str(b.notesOut, 300), clientRef
       });
     } catch (err) {
@@ -360,14 +385,17 @@ async function route(req, res, url) {
     const before = await db.getEntry(mEntry[1]);
     if (!before) return fail(res, 404, 'العملية غير موجودة.');
 
+    const editVehicle = requireText(b.vehicle, 'الآلية');
+    const editVehicleRow = await db.getVehicleByName(editVehicle);
     const payload = {
-      vehicle:  requireText(b.vehicle, 'الآلية'),
+      vehicle:  editVehicle,
       driver:   requireText(b.driver, 'السائق'),
       customer: requireText(b.customer, 'الزبون'),
       dateKey:  requireDate(b.dateKey, 'التاريخ'),
       departTime: requireTime(b.departTime, 'وقت المغادرة'),
       notesOut: str(b.notesOut, 300),
       notesIn:  str(b.notesIn, 300),
+      loadQty: editVehicleRow && editVehicleRow.type === 'gabbala' ? requireKm(b.loadQty, 'كمية التحميل') : null,
       returnDate: null, returnTime: null, km: null
     };
     const hasReturn = b.returnTime && b.km !== null && b.km !== undefined && b.km !== '';
@@ -398,9 +426,11 @@ async function route(req, res, url) {
     const b = await readJson(req);
     const name = requireText(b.name, 'اسم الآلية');
     const km   = requireKm(b.baselineKm, 'الكيلومتراج الحالي');
+    const type = requireVehicleType(b.type);
+    const fuelTankQty = optionalNumber(b.fuelTankQty, 'كمية المازوت بالخزان');
     if (await db.getVehicleByName(name)) return fail(res, 409, 'هذه الآلية مسجّلة مسبقًا.');
-    const v = await db.insertVehicle(name, km);
-    await db.audit(actor, clientIp(req), 'add_vehicle', v.id, { name, baselineKm: km });
+    const v = await db.insertVehicle(name, km, type, fuelTankQty);
+    await db.audit(actor, clientIp(req), 'add_vehicle', v.id, { name, baselineKm: km, type });
     return json(res, 201, { vehicle: v });
   }
 
@@ -410,11 +440,13 @@ async function route(req, res, url) {
     const b = await readJson(req);
     const name = requireText(b.name, 'اسم الآلية');
     const km   = requireKm(b.baselineKm, 'الكيلومتراج الحالي');
+    const type = requireVehicleType(b.type);
+    const fuelTankQty = optionalNumber(b.fuelTankQty, 'كمية المازوت بالخزان');
     const clash = await db.getVehicleByName(name);
     if (clash && clash.id !== mVehicle[1]) return fail(res, 409, 'يوجد آلية أخرى بنفس الاسم.');
-    const v = await db.updateVehicle(mVehicle[1], name, km);
+    const v = await db.updateVehicle(mVehicle[1], name, km, type, fuelTankQty);
     if (!v) return fail(res, 404, 'الآلية غير موجودة.');
-    await db.audit(actor, clientIp(req), 'edit_vehicle', v.id, { name, baselineKm: km });
+    await db.audit(actor, clientIp(req), 'edit_vehicle', v.id, { name, baselineKm: km, type });
     return json(res, 200, { vehicle: v });
   }
 
@@ -431,6 +463,99 @@ async function route(req, res, url) {
     await db.deleteVehicle(v.id);
     await db.audit(actor, clientIp(req), 'delete_vehicle', v.id, v);
     return json(res, 200, { ok: true });
+  }
+
+  /* ---- السائقون: مدير الآليات فقط ---- */
+
+  function parseAllowedTypes(v) {
+    const arr = Array.isArray(v) ? v : [];
+    const bad = arr.filter(t => !VEHICLE_TYPES.includes(t));
+    if (bad.length) throw badRequest('نوع آلية غير معروف ضمن الأنواع المسموحة.');
+    return arr;
+  }
+
+  if (p === '/api/drivers' && m === 'POST') {
+    const actor = await requireRole(req, res, 'fleet_manager'); if (!actor) return;
+    const b = await readJson(req);
+    const name = requireText(b.name, 'اسم السائق');
+    const allowedTypes = parseAllowedTypes(b.allowedTypes);
+    if (await db.getDriverByName(name)) return fail(res, 409, 'هذا السائق مسجّل مسبقًا.');
+    let driver;
+    try { driver = await db.insertDriver({ name, allowedTypes }); }
+    catch (err) {
+      if (err.duplicateDriverName) return fail(res, 409, 'هذا السائق مسجّل مسبقًا.');
+      throw err;
+    }
+    await db.audit(actor, clientIp(req), 'add_driver', driver.id, { name, allowedTypes });
+    return json(res, 201, { driver });
+  }
+
+  const mDriver = p.match(/^\/api\/drivers\/([\w-]+)$/);
+  if (mDriver && m === 'PUT') {
+    const actor = await requireRole(req, res, 'fleet_manager'); if (!actor) return;
+    const b = await readJson(req);
+    const name = requireText(b.name, 'اسم السائق');
+    const allowedTypes = parseAllowedTypes(b.allowedTypes);
+    let driver;
+    try { driver = await db.updateDriver(mDriver[1], { name, allowedTypes }); }
+    catch (err) {
+      if (err.duplicateDriverName) return fail(res, 409, 'يوجد سائق آخر بنفس الاسم.');
+      throw err;
+    }
+    if (!driver) return fail(res, 404, 'السائق غير موجود.');
+    await db.audit(actor, clientIp(req), 'edit_driver', driver.id, { name, allowedTypes });
+    return json(res, 200, { driver });
+  }
+
+  if (mDriver && m === 'DELETE') {
+    const actor = await requireRole(req, res, 'fleet_manager'); if (!actor) return;
+    await db.deleteDriver(mDriver[1]);
+    await db.audit(actor, clientIp(req), 'delete_driver', mDriver[1], null);
+    return json(res, 200, { ok: true });
+  }
+
+  /* ---- المازوت: حساب المازوت فقط للكتابة ---- */
+
+  if (p === '/api/fuel/fills' && m === 'POST') {
+    const actor = await requireRole(req, res, 'fuel'); if (!actor) return;
+    const b = await readJson(req);
+    const vehicle = requireText(b.vehicle, 'الآلية');
+    const km = requireKm(b.km, 'الكيلومتراج الحالي');
+    const qty = requireKm(b.qty, 'كمية التعبئة');
+    const workHours = optionalNumber(b.workHours, 'ساعات العمل');
+    const dateKey = requireDate(b.dateKey || new Date().toISOString().slice(0, 10), 'التاريخ');
+    const time = requireTime(b.time, 'الوقت');
+    const fill = await db.insertFuelFill({ vehicle, km, qty, workHours, dateKey, time, createdBy: actor.username });
+    await db.audit(actor, clientIp(req), 'fuel_fill', fill.id, { vehicle, qty });
+    return json(res, 201, { fill });
+  }
+
+  if (p === '/api/fuel/supply' && m === 'POST') {
+    const actor = await requireRole(req, res, 'fuel'); if (!actor) return;
+    const b = await readJson(req);
+    const meterReading = requireKm(b.meterReading, 'قراءة العدّاد');
+    const dateKey = requireDate(b.dateKey || new Date().toISOString().slice(0, 10), 'التاريخ');
+    const time = requireTime(b.time, 'الوقت');
+
+    // العدّاد لا ينقص — نفس قاعدة كيلومتراج الآليات حرفيًا.
+    const last = await db.lastFuelMeterReading();
+    if (last !== null && meterReading < last && !b.force) {
+      return fail(res, 409, `قراءة العدّاد (${meterReading}) أقل من آخر قراءة مسجّلة (${last}). تأكّد من الرقم.`);
+    }
+
+    const supply = await db.insertFuelSupply({ meterReading, dateKey, time, createdBy: actor.username });
+    await db.audit(actor, clientIp(req), 'fuel_supply', supply.id, { meterReading });
+    return json(res, 201, { supply });
+  }
+
+  if (p === '/api/fuel/baseline' && m === 'POST') {
+    const actor = await requireRole(req, res, 'fuel'); if (!actor) return;
+    const b = await readJson(req);
+    const initialQty = requireKm(b.initialQty, 'الكمية الابتدائية');
+    const initialMeter = requireKm(b.initialMeter, 'قراءة العدّاد الابتدائية');
+    const baseline = await db.setFuelBaseline(initialQty, initialMeter);
+    await db.audit(actor, clientIp(req), 'fuel_baseline', null, { initialQty, initialMeter });
+    return json(res, 200, { baseline });
   }
 
   /* ---- المستخدمون وكلمات المرور: الأدمن فقط ---- */

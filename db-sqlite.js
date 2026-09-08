@@ -130,15 +130,57 @@ function init(options) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_audit_at ON audit(at);
+
+    -- سجلّ السائقين. allowed_types نص JSON لمصفوفة رموز الأنواع، استشاري لا
+    -- يمنع البوابة من كتابة أي اسم سائق (انظر تعليق insertEntry).
+    CREATE TABLE IF NOT EXISTS drivers (
+      id            TEXT PRIMARY KEY,
+      name          TEXT NOT NULL UNIQUE,
+      allowed_types TEXT NOT NULL DEFAULT '[]',
+      created_at    TEXT NOT NULL
+    );
+
+    -- تعبئة آلية من المازوت: قراءة توضيحية لا تُفرض عليها قاعدة عدم النقصان
+    -- (كيلومتراج الآلية الحقيقي يُتتبَّع من جدول entries).
+    CREATE TABLE IF NOT EXISTS fuel_fills (
+      id         TEXT PRIMARY KEY,
+      vehicle    TEXT NOT NULL,
+      km         REAL NOT NULL,
+      qty        REAL NOT NULL,
+      work_hours REAL,
+      date_key   TEXT NOT NULL,
+      time       TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      created_by TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_fuel_fills_date    ON fuel_fills(date_key);
+    CREATE INDEX IF NOT EXISTS idx_fuel_fills_vehicle ON fuel_fills(vehicle);
+
+    -- تعبئة الخزان الرئيسي: قراءة عدّاد تراكمي واحدة للمنشأة كلها، بنفس مبدأ
+    -- كيلومتراج الآليات — تُخزَّن القراءة المطلقة لا الفرق، والفرق يُحسَب
+    -- عند الحاجة (التقارير) من الفرق عن آخر قراءة أو عن الرصيد الابتدائي.
+    CREATE TABLE IF NOT EXISTS fuel_supply (
+      id            TEXT PRIMARY KEY,
+      meter_reading REAL NOT NULL,
+      date_key      TEXT NOT NULL,
+      time          TEXT NOT NULL,
+      created_at    TEXT NOT NULL,
+      created_by    TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_fuel_supply_date ON fuel_supply(date_key);
   `);
 
-  // لا يوجد نظام migration عام هنا: الجداول القديمة (sessions، audit) قد تكون
-  // أُنشئت قبل إضافة نموذج المستخدمين الشخصي، فنضيف الأعمدة الناقصة يدويًا.
-  // sessions و audit عمليّتان لا تحملان بيانات عمل جوهرية (الجلسات مؤقتة، والتدقيق
-  // إضافي)، فالإضافة الآمنة بعمود جديد تكفي، بلا حاجة لإعادة بناء الجدول.
+  // لا يوجد نظام migration عام هنا: الجداول القديمة (sessions، audit، vehicles،
+  // entries) قد تكون أُنشئت قبل إضافة هذه الحقول، فنضيف الأعمدة الناقصة يدويًا.
+  // sessions و audit عمليّتان لا تحملان بيانات عمل جوهرية، فالإضافة الآمنة بعمود
+  // جديد تكفي؛ vehicles/entries بيانات عمل حقيقية، لكن عمود جديد NULLABLE لا
+  // يفقد أي بيانات قائمة.
   ensureColumn('sessions', 'user_id', 'user_id TEXT');
   ensureColumn('sessions', 'username', 'username TEXT');
   ensureColumn('audit', 'username', "username TEXT NOT NULL DEFAULT '-'");
+  ensureColumn('vehicles', 'type', 'type TEXT');
+  ensureColumn('vehicles', 'fuel_tank_qty', 'fuel_tank_qty REAL');
+  ensureColumn('entries', 'load_qty', 'load_qty REAL');
 
   return { location: file, initialPasswords: seedUsers(options && options.adminPassword) };
 }
@@ -361,6 +403,7 @@ function entryOut(r) {
     customer: r.customer, departTime: r.depart_time, notesOut: r.notes_out,
     returnDate: r.return_date, returnTime: r.return_time,
     km: r.km === null ? null : Number(r.km),
+    loadQty: r.load_qty === null || r.load_qty === undefined ? null : Number(r.load_qty),
     notesIn: r.notes_in, status: r.status,
     createdAt: r.created_at, updatedAt: r.updated_at,
     clientRef: r.client_ref, returnClientRef: r.return_client_ref
@@ -368,7 +411,17 @@ function entryOut(r) {
 }
 
 function vehicleOut(r) {
-  return { id: r.id, name: r.name, baselineKm: Number(r.baseline_km), registeredAt: r.registered_at };
+  return {
+    id: r.id, name: r.name, baselineKm: Number(r.baseline_km), registeredAt: r.registered_at,
+    type: r.type || null,
+    fuelTankQty: r.fuel_tank_qty === null || r.fuel_tank_qty === undefined ? null : Number(r.fuel_tank_qty)
+  };
+}
+
+function driverOut(r) {
+  let allowedTypes = [];
+  try { allowedTypes = JSON.parse(r.allowed_types || '[]'); } catch (e) { allowedTypes = []; }
+  return { id: r.id, name: r.name, allowedTypes, createdAt: r.created_at };
 }
 
 /* ---------------------------------------------------------- الاستعلامات */
@@ -443,10 +496,12 @@ function insertEntry(data) {
   try {
     db.prepare(`INSERT INTO entries
         (id, date_key, vehicle, driver, customer, depart_time, notes_out,
-         return_date, return_time, km, notes_in, status, created_at, updated_at, client_ref)
-        VALUES (?,?,?,?,?,?,?,NULL,NULL,NULL,'','out',?,?,?)`)
+         return_date, return_time, km, load_qty, notes_in, status, created_at, updated_at, client_ref)
+        VALUES (?,?,?,?,?,?,?,NULL,NULL,NULL,?,'','out',?,?,?)`)
       .run(id, data.dateKey, data.vehicle, data.driver, data.customer,
-           data.departTime, data.notesOut || '', now, now, data.clientRef || null);
+           data.departTime, data.notesOut || '',
+           data.loadQty === undefined || data.loadQty === null ? null : Number(data.loadQty),
+           now, now, data.clientRef || null);
   } catch (err) {
     // خرق الفهرس الفريد = الآلية في الخارج أصلًا. نُعلِّم الخطأ ليترجمه
     // الخادم إلى 409، تمامًا كما يفعل محرّك Mongo.
@@ -494,10 +549,11 @@ function updateEntry(id, data) {
   if (!existing) return null;
   const done = data.returnTime && data.km !== null && data.km !== undefined && data.km !== '';
   db.prepare(`UPDATE entries SET date_key=?, vehicle=?, driver=?, customer=?, depart_time=?,
-              notes_out=?, return_date=?, return_time=?, km=?, notes_in=?, status=?, updated_at=?
+              notes_out=?, load_qty=?, return_date=?, return_time=?, km=?, notes_in=?, status=?, updated_at=?
               WHERE id=?`)
     .run(data.dateKey, data.vehicle, data.driver, data.customer, data.departTime,
          data.notesOut || '',
+         data.loadQty === undefined || data.loadQty === null || data.loadQty === '' ? null : Number(data.loadQty),
          done ? (data.returnDate || data.dateKey) : null,
          done ? data.returnTime : null,
          done ? Number(data.km) : null,
@@ -512,10 +568,12 @@ function deleteEntry(id) {
   return info.changes > 0;
 }
 
-function insertVehicle(name, baselineKm) {
+function insertVehicle(name, baselineKm, type, fuelTankQty) {
   const id = newId('v');
-  db.prepare('INSERT INTO vehicles (id, name, baseline_km, registered_at) VALUES (?,?,?,?)')
-    .run(id, String(name).trim(), Number(baselineKm), new Date().toISOString());
+  db.prepare('INSERT INTO vehicles (id, name, baseline_km, type, fuel_tank_qty, registered_at) VALUES (?,?,?,?,?,?)')
+    .run(id, String(name).trim(), Number(baselineKm), type || null,
+         fuelTankQty === undefined || fuelTankQty === null || fuelTankQty === '' ? null : Number(fuelTankQty),
+         new Date().toISOString());
   return getVehicle(id);
 }
 
@@ -523,15 +581,17 @@ function insertVehicle(name, baselineKm) {
  * تعديل آلية. إعادة تسمية الآلية تُحدِّث كل سجلاتها السابقة داخل نفس المعاملة،
  * وإلا انفصل تاريخها القديم عن اسمها الجديد وضاعت حسابات المسافة.
  */
-function updateVehicle(id, name, baselineKm) {
+function updateVehicle(id, name, baselineKm, type, fuelTankQty) {
   const tx = db.prepare('BEGIN IMMEDIATE');
   tx.run();
   try {
     const old = db.prepare('SELECT * FROM vehicles WHERE id = ?').get(String(id));
     if (!old) { db.prepare('ROLLBACK').run(); return null; }
     const newName = String(name).trim();
-    db.prepare('UPDATE vehicles SET name = ?, baseline_km = ? WHERE id = ?')
-      .run(newName, Number(baselineKm), String(id));
+    db.prepare('UPDATE vehicles SET name = ?, baseline_km = ?, type = ?, fuel_tank_qty = ? WHERE id = ?')
+      .run(newName, Number(baselineKm), type || null,
+           fuelTankQty === undefined || fuelTankQty === null || fuelTankQty === '' ? null : Number(fuelTankQty),
+           String(id));
     if (old.name !== newName) {
       db.prepare('UPDATE entries SET vehicle = ?, updated_at = ? WHERE vehicle = ?')
         .run(newName, new Date().toISOString(), old.name);
@@ -542,6 +602,136 @@ function updateVehicle(id, name, baselineKm) {
     try { db.prepare('ROLLBACK').run(); } catch (e) { /* المعاملة أُغلقت أصلًا */ }
     throw err;
   }
+}
+
+/* ---------------------------------------------------------- السائقون */
+
+function listDrivers() {
+  return db.prepare('SELECT * FROM drivers ORDER BY name').all().map(driverOut);
+}
+
+function getDriverByName(name) {
+  const r = db.prepare('SELECT * FROM drivers WHERE name = ?').get(String(name).trim());
+  return r ? driverOut(r) : null;
+}
+
+function insertDriver(data) {
+  const id = newId('d');
+  try {
+    db.prepare('INSERT INTO drivers (id, name, allowed_types, created_at) VALUES (?,?,?,?)')
+      .run(id, String(data.name).trim(), JSON.stringify(data.allowedTypes || []), new Date().toISOString());
+  } catch (err) {
+    if (/UNIQUE constraint failed/i.test(err.message)) {
+      const e = new Error('هذا السائق مسجّل مسبقًا.');
+      e.duplicateDriverName = true;
+      throw e;
+    }
+    throw err;
+  }
+  const r = db.prepare('SELECT * FROM drivers WHERE id = ?').get(id);
+  return driverOut(r);
+}
+
+function updateDriver(id, data) {
+  const existing = db.prepare('SELECT * FROM drivers WHERE id = ?').get(String(id));
+  if (!existing) return null;
+  const newName = String(data.name).trim();
+  try {
+    db.prepare('UPDATE drivers SET name = ?, allowed_types = ? WHERE id = ?')
+      .run(newName, JSON.stringify(data.allowedTypes || []), String(id));
+  } catch (err) {
+    if (/UNIQUE constraint failed/i.test(err.message)) {
+      const e = new Error('يوجد سائق آخر بنفس الاسم.');
+      e.duplicateDriverName = true;
+      throw e;
+    }
+    throw err;
+  }
+  const r = db.prepare('SELECT * FROM drivers WHERE id = ?').get(String(id));
+  return driverOut(r);
+}
+
+function deleteDriver(id) {
+  const info = db.prepare('DELETE FROM drivers WHERE id = ?').run(String(id));
+  return info.changes > 0;
+}
+
+/* ---------------------------------------------------------- وحدة المازوت */
+
+function fuelFillOut(r) {
+  return {
+    id: r.id, vehicle: r.vehicle, km: Number(r.km), qty: Number(r.qty),
+    workHours: r.work_hours === null || r.work_hours === undefined ? null : Number(r.work_hours),
+    dateKey: r.date_key, time: r.time, createdAt: r.created_at, createdBy: r.created_by
+  };
+}
+
+function fuelSupplyOut(r) {
+  return {
+    id: r.id, meterReading: Number(r.meter_reading),
+    dateKey: r.date_key, time: r.time, createdAt: r.created_at, createdBy: r.created_by
+  };
+}
+
+function listFuelFills(days) {
+  const n = Number(days);
+  if (!n || n <= 0) {
+    return db.prepare('SELECT * FROM fuel_fills ORDER BY date_key DESC, time DESC').all().map(fuelFillOut);
+  }
+  const from = new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+  return db.prepare('SELECT * FROM fuel_fills WHERE date_key >= ? ORDER BY date_key DESC, time DESC')
+    .all(from).map(fuelFillOut);
+}
+
+function insertFuelFill(data) {
+  const id = newId('f');
+  db.prepare(`INSERT INTO fuel_fills (id, vehicle, km, qty, work_hours, date_key, time, created_at, created_by)
+              VALUES (?,?,?,?,?,?,?,?,?)`)
+    .run(id, String(data.vehicle).trim(), Number(data.km), Number(data.qty),
+         data.workHours === undefined || data.workHours === null || data.workHours === '' ? null : Number(data.workHours),
+         data.dateKey, data.time, new Date().toISOString(), data.createdBy || null);
+  const r = db.prepare('SELECT * FROM fuel_fills WHERE id = ?').get(id);
+  return fuelFillOut(r);
+}
+
+function listFuelSupply(days) {
+  const n = Number(days);
+  if (!n || n <= 0) {
+    return db.prepare('SELECT * FROM fuel_supply ORDER BY date_key DESC, time DESC').all().map(fuelSupplyOut);
+  }
+  const from = new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+  return db.prepare('SELECT * FROM fuel_supply WHERE date_key >= ? ORDER BY date_key DESC, time DESC')
+    .all(from).map(fuelSupplyOut);
+}
+
+function insertFuelSupply(data) {
+  const id = newId('s');
+  db.prepare(`INSERT INTO fuel_supply (id, meter_reading, date_key, time, created_at, created_by)
+              VALUES (?,?,?,?,?,?)`)
+    .run(id, Number(data.meterReading), data.dateKey, data.time, new Date().toISOString(), data.createdBy || null);
+  const r = db.prepare('SELECT * FROM fuel_supply WHERE id = ?').get(id);
+  return fuelSupplyOut(r);
+}
+
+// آخر قراءة عدّاد للخزان — نفس دور lastKmForVehicle، لكن لعدّاد واحد للمنشأة كلها.
+function lastFuelMeterReading() {
+  const r = db.prepare('SELECT meter_reading FROM fuel_supply ORDER BY date_key DESC, time DESC, created_at DESC LIMIT 1').get();
+  if (r) return Number(r.meter_reading);
+  const baseline = getFuelBaseline();
+  return baseline ? baseline.initialMeter : null;
+}
+
+function getFuelBaseline() {
+  const qty = getSetting('fuel_initial_qty');
+  const meter = getSetting('fuel_initial_meter');
+  if (qty === null || meter === null) return null;
+  return { initialQty: Number(qty), initialMeter: Number(meter) };
+}
+
+function setFuelBaseline(initialQty, initialMeter) {
+  setSetting('fuel_initial_qty', Number(initialQty));
+  setSetting('fuel_initial_meter', Number(initialMeter));
+  return getFuelBaseline();
 }
 
 function deleteVehicle(id) {
@@ -576,5 +766,8 @@ module.exports = {
   listVehicles, listEntries, getEntry, getEntryByClientRef, getVehicle, getVehicleByName,
   lastKmForVehicle, vehicleIsOut, countEntriesForVehicle,
   insertEntry, closeEntry, updateEntry, deleteEntry,
-  insertVehicle, updateVehicle, deleteVehicle
+  insertVehicle, updateVehicle, deleteVehicle,
+  listDrivers, getDriverByName, insertDriver, updateDriver, deleteDriver,
+  insertFuelFill, listFuelFills, insertFuelSupply, listFuelSupply,
+  lastFuelMeterReading, getFuelBaseline, setFuelBaseline
 };

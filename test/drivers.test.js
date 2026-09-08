@@ -29,7 +29,10 @@ const REQUIRED = [
   'listVehicles', 'listEntries', 'getEntry', 'getEntryByClientRef', 'getVehicle', 'getVehicleByName',
   'lastKmForVehicle', 'vehicleIsOut', 'countEntriesForVehicle',
   'insertEntry', 'closeEntry', 'updateEntry', 'deleteEntry',
-  'insertVehicle', 'updateVehicle', 'deleteVehicle'
+  'insertVehicle', 'updateVehicle', 'deleteVehicle',
+  'listDrivers', 'getDriverByName', 'insertDriver', 'updateDriver', 'deleteDriver',
+  'insertFuelFill', 'listFuelFills', 'insertFuelSupply', 'listFuelSupply',
+  'lastFuelMeterReading', 'getFuelBaseline', 'setFuelBaseline'
 ];
 
 const drivers = {

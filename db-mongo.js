@@ -164,7 +164,10 @@ async function init(options) {
     sessions: db.collection('sessions'),
     attempts: db.collection('login_attempts'),
     audit:    db.collection('audit'),
-    users:    db.collection('users')
+    users:    db.collection('users'),
+    drivers:  db.collection('drivers'),
+    fuelFills:  db.collection('fuel_fills'),
+    fuelSupply: db.collection('fuel_supply')
   };
 
   // الفهارس. `unique` على اسم الآلية يجعل منع التكرار قاعدة في قاعدة البيانات
@@ -172,6 +175,8 @@ async function init(options) {
   await col.vehicles.createIndex({ name: 1 }, { unique: true });
   // اسم مستخدم فريد لكل حساب شخصي — نفس مبدأ فهرس اسم الآلية أعلاه.
   await col.users.createIndex({ username: 1 }, { unique: true });
+  // اسم فريد لكل سائق — نفس المبدأ.
+  await col.drivers.createIndex({ name: 1 }, { unique: true });
   await col.entries.createIndex({ status: 1 });
   await col.entries.createIndex({ dateKey: -1, departTime: -1 });
   await col.entries.createIndex({ vehicle: 1 });
@@ -193,6 +198,12 @@ async function init(options) {
     { clientRef: 1 },
     { unique: true, partialFilterExpression: { clientRef: { $type: 'string' } }, name: 'unique_client_ref' }
   );
+
+  // فهارس وحدة المازوت — لا قيد تفرّد هنا (انظر تعليق الجدول في db-sqlite.js)،
+  // فقط تسريع الاستعلام بالتاريخ والآلية كما في entries.
+  await col.fuelFills.createIndex({ dateKey: -1 });
+  await col.fuelFills.createIndex({ vehicle: 1 });
+  await col.fuelSupply.createIndex({ dateKey: -1 });
 
   const initialPasswords = await seedUsers(opts.adminPassword);
   const safeUri = uri.replace(/\/\/([^:]+):([^@]+)@/, '//$1:****@');
@@ -514,7 +525,9 @@ async function insertEntry(data) {
     dateKey: data.dateKey, vehicle: data.vehicle, driver: data.driver,
     customer: data.customer, departTime: data.departTime,
     notesOut: data.notesOut || '',
-    returnDate: null, returnTime: null, km: null, notesIn: '',
+    returnDate: null, returnTime: null, km: null,
+    loadQty: data.loadQty === undefined || data.loadQty === null ? null : Number(data.loadQty),
+    notesIn: '',
     status: 'out', createdAt: now, updatedAt: now,
     returnClientRef: null
   };
@@ -573,6 +586,7 @@ async function updateEntry(id, data) {
         dateKey: data.dateKey, vehicle: data.vehicle, driver: data.driver,
         customer: data.customer, departTime: data.departTime,
         notesOut: data.notesOut || '',
+        loadQty: data.loadQty === undefined || data.loadQty === null || data.loadQty === '' ? null : Number(data.loadQty),
         returnDate: done ? (data.returnDate || data.dateKey) : null,
         returnTime: done ? data.returnTime : null,
         km:         done ? Number(data.km) : null,
@@ -590,12 +604,14 @@ async function deleteEntry(id) {
   return res.deletedCount > 0;
 }
 
-async function insertVehicle(name, baselineKm) {
+async function insertVehicle(name, baselineKm, type, fuelTankQty) {
   const id = newId('v');
   const doc = {
     _id: id, id,
     name: String(name).trim(),
     baselineKm: Number(baselineKm),
+    type: type || null,
+    fuelTankQty: fuelTankQty === undefined || fuelTankQty === null || fuelTankQty === '' ? null : Number(fuelTankQty),
     registeredAt: new Date().toISOString()
   };
   await col.vehicles.insertOne(doc);
@@ -611,7 +627,7 @@ async function insertVehicle(name, baselineKm) {
  * العمليتان تباعًا؛ الخطر عمليًّا معدوم لأن إعادة تسمية آلية إجراء نادر
  * يقوم به المدير وحده.
  */
-async function updateVehicle(id, name, baselineKm) {
+async function updateVehicle(id, name, baselineKm, type, fuelTankQty) {
   const old = await col.vehicles.findOne({ _id: String(id) });
   if (!old) return null;
   const newName = String(name).trim();
@@ -620,7 +636,11 @@ async function updateVehicle(id, name, baselineKm) {
   const apply = async (session) => {
     const opts = session ? { session } : {};
     await col.vehicles.updateOne({ _id: String(id) },
-      { $set: { name: newName, baselineKm: Number(baselineKm) } }, opts);
+      { $set: {
+          name: newName, baselineKm: Number(baselineKm),
+          type: type || null,
+          fuelTankQty: fuelTankQty === undefined || fuelTankQty === null || fuelTankQty === '' ? null : Number(fuelTankQty)
+      } }, opts);
     if (old.name !== newName) {
       await col.entries.updateMany({ vehicle: old.name },
         { $set: { vehicle: newName, updatedAt: now } }, opts);
@@ -643,6 +663,138 @@ async function updateVehicle(id, name, baselineKm) {
 async function deleteVehicle(id) {
   const res = await col.vehicles.deleteOne({ _id: String(id) });
   return res.deletedCount > 0;
+}
+
+/* ---------------------------------------------------------- السائقون */
+
+async function listDrivers() {
+  const rows = await col.drivers.find({}).sort({ name: 1 }).toArray();
+  return rows.map(stripId);
+}
+
+async function getDriverByName(name) {
+  return stripId(await col.drivers.findOne({ name: String(name).trim() }));
+}
+
+async function insertDriver(data) {
+  const id = newId('d');
+  const doc = {
+    _id: id, id,
+    name: String(data.name).trim(),
+    allowedTypes: data.allowedTypes || [],
+    createdAt: new Date().toISOString()
+  };
+  try {
+    await col.drivers.insertOne(doc);
+  } catch (err) {
+    if (err.code === 11000) {
+      const e = new Error('هذا السائق مسجّل مسبقًا.');
+      e.duplicateDriverName = true;
+      throw e;
+    }
+    throw err;
+  }
+  return stripId(doc);
+}
+
+async function updateDriver(id, data) {
+  const existing = await col.drivers.findOne({ _id: String(id) });
+  if (!existing) return null;
+  const newName = String(data.name).trim();
+  let res;
+  try {
+    res = await col.drivers.findOneAndUpdate(
+      { _id: String(id) },
+      { $set: { name: newName, allowedTypes: data.allowedTypes || [] } },
+      { returnDocument: 'after' }
+    );
+  } catch (err) {
+    if (err.code === 11000) {
+      const e = new Error('يوجد سائق آخر بنفس الاسم.');
+      e.duplicateDriverName = true;
+      throw e;
+    }
+    throw err;
+  }
+  return stripId(res);
+}
+
+async function deleteDriver(id) {
+  const res = await col.drivers.deleteOne({ _id: String(id) });
+  return res.deletedCount > 0;
+}
+
+/* ---------------------------------------------------------- وحدة المازوت */
+
+async function listFuelFills(days) {
+  const n = Number(days);
+  const sort = { dateKey: -1, time: -1 };
+  if (!n || n <= 0) {
+    return (await col.fuelFills.find({}).sort(sort).toArray()).map(stripId);
+  }
+  const from = new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+  const rows = await col.fuelFills.find({ dateKey: { $gte: from } }).sort(sort).toArray();
+  return rows.map(stripId);
+}
+
+async function insertFuelFill(data) {
+  const id = newId('f');
+  const doc = {
+    _id: id, id,
+    vehicle: String(data.vehicle).trim(),
+    km: Number(data.km),
+    qty: Number(data.qty),
+    workHours: data.workHours === undefined || data.workHours === null || data.workHours === '' ? null : Number(data.workHours),
+    dateKey: data.dateKey, time: data.time,
+    createdAt: new Date().toISOString(), createdBy: data.createdBy || null
+  };
+  await col.fuelFills.insertOne(doc);
+  return stripId(doc);
+}
+
+async function listFuelSupply(days) {
+  const n = Number(days);
+  const sort = { dateKey: -1, time: -1 };
+  if (!n || n <= 0) {
+    return (await col.fuelSupply.find({}).sort(sort).toArray()).map(stripId);
+  }
+  const from = new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+  const rows = await col.fuelSupply.find({ dateKey: { $gte: from } }).sort(sort).toArray();
+  return rows.map(stripId);
+}
+
+async function insertFuelSupply(data) {
+  const id = newId('s');
+  const doc = {
+    _id: id, id,
+    meterReading: Number(data.meterReading),
+    dateKey: data.dateKey, time: data.time,
+    createdAt: new Date().toISOString(), createdBy: data.createdBy || null
+  };
+  await col.fuelSupply.insertOne(doc);
+  return stripId(doc);
+}
+
+// آخر قراءة عدّاد للخزان — نفس دور lastKmForVehicle، لكن لعدّاد واحد للمنشأة كلها.
+async function lastFuelMeterReading() {
+  const row = await col.fuelSupply
+    .find({}).sort({ dateKey: -1, time: -1, createdAt: -1 }).limit(1).next();
+  if (row) return Number(row.meterReading);
+  const baseline = await getFuelBaseline();
+  return baseline ? baseline.initialMeter : null;
+}
+
+async function getFuelBaseline() {
+  const qty = await getSetting('fuel_initial_qty');
+  const meter = await getSetting('fuel_initial_meter');
+  if (qty === null || meter === null) return null;
+  return { initialQty: Number(qty), initialMeter: Number(meter) };
+}
+
+async function setFuelBaseline(initialQty, initialMeter) {
+  await setSetting('fuel_initial_qty', Number(initialQty));
+  await setSetting('fuel_initial_meter', Number(initialMeter));
+  return getFuelBaseline();
 }
 
 /* ------------------------------------------------- النسخ الاحتياطي */
@@ -679,5 +831,8 @@ module.exports = {
   listVehicles, listEntries, getEntry, getEntryByClientRef, getVehicle, getVehicleByName,
   lastKmForVehicle, vehicleIsOut, countEntriesForVehicle,
   insertEntry, closeEntry, updateEntry, deleteEntry,
-  insertVehicle, updateVehicle, deleteVehicle
+  insertVehicle, updateVehicle, deleteVehicle,
+  listDrivers, getDriverByName, insertDriver, updateDriver, deleteDriver,
+  insertFuelFill, listFuelFills, insertFuelSupply, listFuelSupply,
+  lastFuelMeterReading, getFuelBaseline, setFuelBaseline
 };

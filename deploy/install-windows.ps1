@@ -85,24 +85,56 @@ if (-not (Test-Path $nodeModules)) {
 }
 Say '✓ مكتبات npm جاهزة' Green
 
-# ---- 3ج. التحقق من MongoDB ----
-if (-not $env:MONGODB_URI) {
-  $mongoSvc = Get-Service -Name 'MongoDB' -ErrorAction SilentlyContinue
-  if (-not $mongoSvc) {
-    Say '⚠ لم يُعثر على خدمة MongoDB على هذا السيرفر.' Yellow
-    Say '  ثبّتها من https://www.mongodb.com/try/download/community' Yellow
-    Say '  أو اضبط MONGODB_URI على عنوان قاعدة بيانات أخرى (Atlas مثلًا):' Yellow
-    Say '    [Environment]::SetEnvironmentVariable("MONGODB_URI","mongodb+srv://...","Machine")' Yellow
-    Say '  التثبيت سيستمر، لكن الخدمة لن تعمل حتى تتوفّر قاعدة البيانات.' Yellow
-  } elseif ($mongoSvc.Status -ne 'Running') {
-    Say "• خدمة MongoDB موجودة لكنها متوقفة ($($mongoSvc.Status)) — جارٍ تشغيلها" Yellow
-    Start-Service -Name 'MongoDB' -ErrorAction SilentlyContinue
-    Say '✓ شُغّلت خدمة MongoDB' Green
-  } else {
-    Say '✓ خدمة MongoDB تعمل' Green
+# ---- 3ج. التحقق من قاعدة البيانات المختارة ----
+# المحرّك يُختار من gatelog.config.json أو متغيّر البيئة GATE_LOG_DB — الافتراضي mssql.
+$driver = 'mssql'
+$configPath = Join-Path $appRoot 'gatelog.config.json'
+if (Test-Path $configPath) {
+  try {
+    $cfg = Get-Content $configPath -Raw | ConvertFrom-Json
+    if ($cfg.driver) { $driver = [string]$cfg.driver }
+  } catch {
+    Say "⚠ تعذّرت قراءة $configPath — تحقّق من صحة صيغة JSON." Yellow
   }
-} else {
-  Say "✓ سيُستخدم MONGODB_URI المضبوط مسبقًا" Green
+}
+if ($env:GATE_LOG_DB) { $driver = $env:GATE_LOG_DB }
+
+switch ($driver.ToLower()) {
+  'mssql' {
+    Say '• المحرّك المختار: SQL Server' DarkGray
+    if (-not (Test-Path $configPath) -and -not $env:MSSQL_SERVER -and -not $env:MSSQL_CONNECTION_STRING) {
+      Say '⚠ لا يوجد gatelog.config.json بعد — انسخه من gatelog.config.example.json' Yellow
+      Say '  واملأ بيانات SQL Server قبل تشغيل الخدمة. راجع deploy\SQLSERVER-SETUP.md' Yellow
+    } else {
+      Say '  تأكّد أن بيانات الاتصال في gatelog.config.json صحيحة (راجع deploy\SQLSERVER-SETUP.md عند الحاجة).' DarkGray
+    }
+  }
+  'mongo' {
+    if (-not $env:MONGODB_URI) {
+      $mongoSvc = Get-Service -Name 'MongoDB' -ErrorAction SilentlyContinue
+      if (-not $mongoSvc) {
+        Say '⚠ لم يُعثر على خدمة MongoDB على هذا السيرفر.' Yellow
+        Say '  ثبّتها من https://www.mongodb.com/try/download/community' Yellow
+        Say '  أو اضبط MONGODB_URI على عنوان قاعدة بيانات أخرى (Atlas مثلًا):' Yellow
+        Say '    [Environment]::SetEnvironmentVariable("MONGODB_URI","mongodb+srv://...","Machine")' Yellow
+        Say '  التثبيت سيستمر، لكن الخدمة لن تعمل حتى تتوفّر قاعدة البيانات.' Yellow
+      } elseif ($mongoSvc.Status -ne 'Running') {
+        Say "• خدمة MongoDB موجودة لكنها متوقفة ($($mongoSvc.Status)) — جارٍ تشغيلها" Yellow
+        Start-Service -Name 'MongoDB' -ErrorAction SilentlyContinue
+        Say '✓ شُغّلت خدمة MongoDB' Green
+      } else {
+        Say '✓ خدمة MongoDB تعمل' Green
+      }
+    } else {
+      Say '✓ سيُستخدم MONGODB_URI المضبوط مسبقًا' Green
+    }
+  }
+  'sqlite' {
+    Say '✓ المحرّك المختار: SQLite — لا يحتاج أي خادم قاعدة بيانات' Green
+  }
+  default {
+    Say "⚠ قيمة driver غير معروفة في $configPath : $driver" Yellow
+  }
 }
 
 $dataDir = Join-Path $appRoot 'data'
@@ -200,9 +232,10 @@ Write-Host '  ══════════════════════
 Say "على السيرفر نفسه :  http://localhost:$Port"
 foreach ($ip in $ips) { Say "من أجهزة البوابة  :  http://${ip}:$Port" }
 Write-Host ''
-Say 'كلمتا المرور الأوليتان مكتوبتان في:' Yellow
+Say 'كلمات المرور الأولية لكل الحسابات (البوابة، مدير الآليات، المازوت،' Yellow
+Say 'مدير مستودع المازوت، والأدمن) مكتوبة في:' Yellow
 Say "  $dataDir\كلمات-المرور-الأولية.txt" Yellow
-Say 'غيّرهما من تبويب «الإعدادات» ثم احذف الملف.' Yellow
+Say 'غيّرها كل موظف من حسابه، أو الأدمن من تبويب «المستخدمون»، ثم احذف الملف.' Yellow
 Write-Host ''
 Say 'أوامر مفيدة:' DarkGray
 Say "  إيقاف   :  Stop-ScheduledTask -TaskName $TaskName" DarkGray
