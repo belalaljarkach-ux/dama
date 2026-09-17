@@ -29,10 +29,12 @@ const REQUIRED = [
   'listVehicles', 'listEntries', 'getEntry', 'getEntryByClientRef', 'getVehicle', 'getVehicleByName',
   'lastKmForVehicle', 'vehicleIsOut', 'countEntriesForVehicle',
   'insertEntry', 'closeEntry', 'updateEntry', 'deleteEntry',
-  'insertVehicle', 'updateVehicle', 'deleteVehicle',
-  'listDrivers', 'getDriverByName', 'insertDriver', 'updateDriver', 'deleteDriver',
+  'insertVehicle', 'updateVehicle', 'deleteVehicle', 'getVehicleByClientRef',
+  'listDrivers', 'getDriverByName', 'insertDriver', 'updateDriver', 'deleteDriver', 'getDriverByClientRef',
   'insertFuelFill', 'listFuelFills', 'insertFuelSupply', 'listFuelSupply',
-  'lastFuelMeterReading', 'getFuelBaseline', 'setFuelBaseline'
+  'getFuelFillByClientRef', 'getFuelSupplyByClientRef',
+  'lastFuelMeterReading', 'getFuelBaseline', 'setFuelBaseline', 'lastWorkHoursForVehicle', 'lastDispenserMeterReading',
+  'listGuestVisits', 'insertGuestVisit', 'closeGuestVisit'
 ];
 
 const drivers = {

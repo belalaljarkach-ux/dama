@@ -200,6 +200,8 @@
   .badge-warn{background:var(--warn-bg);color:var(--warn);}
   .badge-pending{background:#E8DFF5;color:#5B3E8C;}
   .out-row.pending{border-inline-start:3px solid #7B5AAF;padding-inline-start:10px;}
+  tr.is-pending{background:#F3EEFA;}
+  tr.is-pending .veh-cell{border-inline-start:3px solid #7B5AAF;padding-inline-start:7px;}
   .empty{color:var(--ink-soft);font-size:14px;text-align:center;padding:18px 0;margin:0;}
 
   .recent-item{display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px dashed var(--line);}
@@ -302,7 +304,9 @@
     <button class="tab" data-tab="log" data-role="fleet_manager,admin">السجل الكامل</button>
     <button class="tab" data-tab="reports" data-role="fleet_manager,admin">التقارير والتنبيهات</button>
     <button class="tab" data-tab="fuel" data-role="fuel,fuel_warehouse_manager,admin">المازوت</button>
+    <button class="tab" data-tab="setup" data-role="admin">الإعداد الأولي</button>
     <button class="tab" data-tab="users" data-role="admin">المستخدمون</button>
+    <button class="tab" data-tab="hr" data-role="hr">تقارير الموارد البشرية</button>
   </nav>
 
   <!-- ---------------- تبويب البوابة: تسجيل عملية ---------------- -->
@@ -332,7 +336,7 @@
         <div class="field field-wide">
           <label for="f-vehicle">الآلية (النوع والرقم)</label>
           <input list="dl-vehicles" id="f-vehicle" placeholder="مثال: قلاب رقم 3" required>
-          <small>الآلية يجب أن تكون مسجّلة مسبقًا من حساب المدير في تبويب «الآليات»</small>
+          <small>الآلية يجب أن تكون مسجّلة مسبقًا من حساب الأدمن في تبويب «الإعداد الأولي»</small>
         </div>
         <div class="field">
           <label for="f-driver">اسم السائق</label>
@@ -350,6 +354,17 @@
           <label for="f-loadqty">كمية التحميل</label>
           <input type="number" id="f-loadqty" min="0" step="0.1">
         </div>
+        <div class="field" id="f-technician-field" hidden>
+          <label for="f-technician">اسم الفني</label>
+          <input id="f-technician">
+        </div>
+        <div class="field" id="f-assistant-field" hidden>
+          <label for="f-assistant">اسم مساعد الفني</label>
+          <input id="f-assistant">
+        </div>
+        <div class="field" id="f-manualpour-field" hidden>
+          <label class="show-pw" style="margin:20px 0 0"><input type="checkbox" id="f-manualpour"> الصب يدوي</label>
+        </div>
         <div class="field">
           <label for="f-notes-out">ملاحظة الخروج</label>
           <input type="text" id="f-notes-out" maxlength="300">
@@ -357,6 +372,32 @@
         <p class="form-error" id="form-error" hidden></p>
         <div class="form-actions">
           <button type="submit" class="btn-primary" id="submit-btn">تسجيل المغادرة</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>ضيوف بالموقع الآن</h2>
+        <span class="count-badge" id="guest-count">0</span>
+      </div>
+      <div id="guest-list"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>تسجيل دخول ضيف</h2></div>
+      <form id="guest-form" class="form-grid" novalidate>
+        <div class="field field-wide">
+          <label for="g-vehicle">وصف المركبة</label>
+          <input id="g-vehicle" placeholder="مثال: سيارة توصيل — لوحة ١٢٣" required>
+        </div>
+        <div class="field field-wide">
+          <label for="g-purpose">جهة/سبب الزيارة</label>
+          <input id="g-purpose" required>
+        </div>
+        <p class="form-error" id="guest-error" hidden></p>
+        <div class="form-actions">
+          <button type="submit" class="btn-primary">تسجيل دخول</button>
         </div>
       </form>
     </div>
@@ -370,40 +411,8 @@
   <!-- ---------------- تبويب المدير: الآليات ---------------- -->
   <section class="tab-panel" id="tab-vehicles">
     <div class="card">
-      <div class="card-head"><h2 id="vehicle-form-title">تسجيل آلية جديدة</h2></div>
-      <form id="vehicle-form" class="form-grid" novalidate>
-        <input type="hidden" id="v-edit-id" value="">
-        <div class="field">
-          <label for="v-name">الآلية (النوع والرقم)</label>
-          <input id="v-name" placeholder="مثال: قلاب رقم 3" required>
-        </div>
-        <div class="field">
-          <label for="v-km">الكيلومتراج الحالي</label>
-          <input type="number" id="v-km" min="0" step="0.1" required>
-        </div>
-        <div class="field">
-          <label for="v-type">نوع الآلية</label>
-          <select id="v-type">
-            <option value="gabbala">جبالة</option>
-            <option value="pump">مضخة</option>
-            <option value="service">آلية خدمة</option>
-            <option value="silo">سيلو</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="v-fuel">كمية المازوت بالخزان</label>
-          <input type="number" id="v-fuel" min="0" step="0.1">
-        </div>
-        <p class="form-error" id="vehicle-error" hidden></p>
-        <div class="form-actions">
-          <button type="submit" class="btn-primary" id="v-submit-btn">حفظ الآلية</button>
-          <button type="button" class="btn-ghost" id="v-cancel-edit" hidden>إلغاء</button>
-        </div>
-      </form>
-    </div>
-
-    <div class="card">
       <h2>الآليات المسجّلة</h2>
+      <p class="search-meta" style="margin-top:0">التسجيل والتعديل صار حصرًا من حساب الأدمن — تبويب «الإعداد الأولي».</p>
       <div class="table-wrap">
         <table>
           <thead><tr><th>الآلية</th><th>النوع</th><th>الحالة</th><th>كيلومتراج البداية</th><th>آخر قراءة</th><th>عدد العمليات</th><th></th></tr></thead>
@@ -417,32 +426,8 @@
   <!-- ---------------- تبويب مدير الآليات: السائقون ---------------- -->
   <section class="tab-panel" id="tab-drivers">
     <div class="card">
-      <div class="card-head"><h2 id="driver-form-title">تسجيل سائق جديد</h2></div>
-      <form id="driver-form" class="form-grid" novalidate>
-        <input type="hidden" id="d-edit-id" value="">
-        <div class="field field-wide">
-          <label for="d-name">اسم السائق</label>
-          <input id="d-name" required>
-        </div>
-        <div class="field field-wide">
-          <label>أنواع الآليات التي يمكنه قيادتها</label>
-          <div class="type-checks">
-            <label><input type="checkbox" name="d-type" value="gabbala"> جبالة</label>
-            <label><input type="checkbox" name="d-type" value="pump"> مضخة</label>
-            <label><input type="checkbox" name="d-type" value="service"> آلية خدمة</label>
-            <label><input type="checkbox" name="d-type" value="silo"> سيلو</label>
-          </div>
-        </div>
-        <p class="form-error" id="driver-error" hidden></p>
-        <div class="form-actions">
-          <button type="submit" class="btn-primary" id="d-submit-btn">حفظ السائق</button>
-          <button type="button" class="btn-ghost" id="d-cancel-edit" hidden>إلغاء</button>
-        </div>
-      </form>
-    </div>
-
-    <div class="card">
       <h2>السائقون المسجّلون</h2>
+      <p class="search-meta" style="margin-top:0">التسجيل والتعديل صار حصرًا من حساب الأدمن — تبويب «الإعداد الأولي».</p>
       <div class="table-wrap">
         <table>
           <thead><tr><th>السائق</th><th>الأنواع المسموحة</th><th></th></tr></thead>
@@ -485,6 +470,28 @@
   <!-- ---------------- تبويب المدير: التقارير ---------------- -->
   <section class="tab-panel" id="tab-reports">
     <div class="card">
+      <h2>نطاق التقرير</h2>
+      <div class="form-grid">
+        <div class="field">
+          <label for="rep-from">من تاريخ</label>
+          <input type="date" id="rep-from">
+        </div>
+        <div class="field">
+          <label for="rep-to">إلى تاريخ</label>
+          <input type="date" id="rep-to">
+        </div>
+        <div class="field">
+          <label for="rep-granularity">تجميع الجداول الدورية</label>
+          <select id="rep-granularity">
+            <option value="month">شهري</option>
+            <option value="day">يومي</option>
+          </select>
+        </div>
+      </div>
+      <p class="search-meta" style="margin-top:0">اتركهما فارغين لعرض كل البيانات المتاحة ضمن نافذة العرض الحالية. يشمل النطاق كل التقارير أدناه.</p>
+    </div>
+
+    <div class="card">
       <h2>معايير التنبيه</h2>
       <div class="pct-control">
         <label for="pct-threshold">تجاوز في الوقت عن المتوسط بنسبة:</label>
@@ -496,34 +503,31 @@
       </div>
       <div id="alerts-panel"></div>
     </div>
-    <div class="card"><h2>تقرير الآليات</h2><div id="report-vehicles"></div></div>
-    <div class="card"><h2>تقرير السائقين</h2><div id="report-drivers"></div></div>
+    <div class="card">
+      <h2>تقرير الآليات</h2>
+      <div class="search-wrap"><input type="search" id="report-vehicles-search" placeholder="ابحث باسم الآلية…" autocomplete="off"></div>
+      <div id="report-vehicles"></div>
+    </div>
+    <div class="card">
+      <h2>تقرير السائقين</h2>
+      <div class="search-wrap"><input type="search" id="report-drivers-search" placeholder="ابحث باسم السائق…" autocomplete="off"></div>
+      <div id="report-drivers"></div>
+    </div>
     <div class="card"><h2>تقرير الزبائن — مقارنة الآليات</h2><div id="report-customers"></div></div>
+    <div class="card"><h2>تقرير المضخات — الكمية المضخوخة (مطابقة باسم الزبون)</h2>
+      <p class="search-meta" style="margin-top:0">الكمية المحسوبة لكل مضخة هي مجموع كميات تحميل الجبالات لكل زبون مميّز خدمته تلك المضخة بنفس الفترة — زبون خدمته مضختان مختلفتان تُحسب له كميته الكاملة لكل واحدة.</p>
+      <div id="report-pumps"></div>
+    </div>
+    <div class="card"><h2>مقارنة كيلومترات البوابة والمازوت</h2><div id="report-km-compare"></div></div>
 
-    <div class="card"><h2>التقرير الشهري — الزبائن وكميات الصب</h2><div id="report-monthly-customers"></div></div>
-    <div class="card"><h2>التقرير الشهري — السائقون</h2><div id="report-monthly-drivers"></div></div>
-    <div class="card"><h2>التقرير الشهري — الآليات</h2><div id="report-monthly-vehicles"></div></div>
-    <div class="card"><h2>التقرير الشهري — استهلاك المازوت مقابل الكيلومتر</h2><div id="report-monthly-fuel"></div></div>
+    <div class="card"><h2>التقرير الدوري — الزبائن وكميات الصب</h2><div id="report-monthly-customers"></div></div>
+    <div class="card"><h2>التقرير الدوري — السائقون</h2><div id="report-monthly-drivers"></div></div>
+    <div class="card"><h2>التقرير الدوري — الآليات</h2><div id="report-monthly-vehicles"></div></div>
+    <div class="card"><h2>التقرير الدوري — استهلاك المازوت مقابل الكيلومتر</h2><div id="report-monthly-fuel"></div></div>
   </section>
 
   <!-- ---------------- تبويب المازوت ---------------- -->
   <section class="tab-panel" id="tab-fuel">
-    <div class="card" id="fuel-baseline-card">
-      <div class="card-head"><h2>الرصيد الابتدائي لخزان المازوت</h2></div>
-      <p class="search-meta" style="margin-top:0">يُضبط مرة واحدة عند بدء العمل بالنظام، ويمكن تصحيحه لاحقًا عند الحاجة.</p>
-      <form id="fuel-baseline-form" class="form-grid" novalidate>
-        <div class="field">
-          <label for="fb-qty">الكمية الابتدائية</label>
-          <input type="number" id="fb-qty" min="0" step="0.1" required>
-        </div>
-        <div class="field">
-          <label for="fb-meter">قراءة العدّاد الابتدائية</label>
-          <input type="number" id="fb-meter" min="0" step="0.1" required>
-        </div>
-        <p class="form-error" id="fuel-baseline-error" hidden></p>
-        <div class="form-actions"><button type="submit" class="btn-primary">حفظ الرصيد الابتدائي</button></div>
-      </form>
-    </div>
 
     <div class="card" id="fuel-fill-card">
       <div class="card-head"><h2>تعبئة آلية</h2></div>
@@ -541,8 +545,20 @@
           <input type="number" id="ff-qty" min="0" step="0.1" required>
         </div>
         <div class="field">
-          <label for="ff-hours">ساعات العمل</label>
+          <label for="ff-tank">الخزان</label>
+          <select id="ff-tank">
+            <option value="tank1">الخزان الأول</option>
+            <option value="tank2">الخزان الثاني</option>
+            <option value="tank3">الخزان الثالث</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="ff-hours">قراءة عدّاد ساعات العمل</label>
           <input type="number" id="ff-hours" min="0" step="0.1">
+        </div>
+        <div class="field">
+          <label for="ff-dispenser">قراءة عدّاد الكازية</label>
+          <input type="number" id="ff-dispenser" min="0" step="0.1">
         </div>
         <div class="field">
           <label>الوقت</label>
@@ -554,8 +570,16 @@
     </div>
 
     <div class="card" id="fuel-supply-card">
-      <div class="card-head"><h2>تعبئة الخزان الرئيسي</h2></div>
+      <div class="card-head"><h2>تعبئة الخزانات</h2></div>
       <form id="fuel-supply-form" class="form-grid" novalidate>
+        <div class="field">
+          <label for="fs-tank">الخزان</label>
+          <select id="fs-tank">
+            <option value="tank1">الخزان الأول</option>
+            <option value="tank2">الخزان الثاني</option>
+            <option value="tank3">الخزان الثالث</option>
+          </select>
+        </div>
         <div class="field">
           <label for="fs-meter">قراءة العدّاد</label>
           <input type="number" id="fs-meter" min="0" step="0.1" required>
@@ -573,7 +597,7 @@
       <h2>سجل تعبئة الآليات</h2>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>التاريخ</th><th>الوقت</th><th>الآلية</th><th>الكيلومتراج</th><th>الكمية</th><th>ساعات العمل</th></tr></thead>
+          <thead><tr><th>التاريخ</th><th>الوقت</th><th>الآلية</th><th>الخزان</th><th>الكيلومتراج</th><th>الكمية</th><th>قراءة عدّاد ساعات العمل</th><th>الساعات منذ آخر تعبئة</th><th>قراءة عدّاد الكازية</th></tr></thead>
           <tbody id="fuel-fill-table-body"></tbody>
         </table>
       </div>
@@ -581,24 +605,124 @@
     </div>
 
     <div class="card">
-      <h2>سجل تعبئة الخزان الرئيسي</h2>
+      <h2>سجل تعبئة الخزانات</h2>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>التاريخ</th><th>الوقت</th><th>قراءة العدّاد</th><th>الكمية المضافة</th></tr></thead>
+          <thead><tr><th>التاريخ</th><th>الوقت</th><th>الخزان</th><th>قراءة العدّاد</th><th>الكمية المضافة</th></tr></thead>
           <tbody id="fuel-supply-table-body"></tbody>
         </table>
       </div>
-      <p class="empty" id="fuel-supply-empty" hidden>لا توجد عمليات تعبئة للخزان مسجّلة بعد.</p>
+      <p class="empty" id="fuel-supply-empty" hidden>لا توجد عمليات تعبئة للخزانات مسجّلة بعد.</p>
     </div>
 
     <div class="card">
-      <h2>تقرير المخزون اليومي</h2>
-      <div id="fuel-stock-daily"></div>
+      <div class="card-head"><h2>تقرير المخزون</h2></div>
+      <p class="search-meta" style="margin-top:0">تقرير مستقل لكل خزان من الثلاثة، بالإضافة لإجمالي مُجمَّع للخزانات الثلاثة معًا.</p>
+      <div id="fuel-stock-report"></div>
+    </div>
+
+    <div class="card" id="fuel-reconcile-card">
+      <div class="card-head"><h2>تصالح عدّاد الكازية</h2></div>
+      <p class="search-meta" style="margin-top:0">مقارنة إجمالي كمية التعبئة المُدخلة يدويًا لكل الآليات مع الفرق بين أول وآخر قراءة لعدّاد الكازية التراكمي بنفس الفترة — تنبيه عند فرق نسبي أكبر من 5%، يعني على الأغلب تعبئة لم تُسجَّل أو خطأ إدخال.</p>
+      <div id="fuel-reconcile-report"></div>
+    </div>
+  </section>
+
+  <!-- ---------------- تبويب الموارد البشرية ---------------- -->
+  <section class="tab-panel" id="tab-hr">
+    <div class="card"><h2>التقرير الشهري — السائقون وكميات الصب</h2><div id="report-hr-drivers"></div></div>
+    <div class="card"><h2>التقرير الشهري — المضخات وكميات الصب</h2><div id="report-hr-pumps"></div></div>
+  </section>
+
+  <!-- ---------------- تبويب الأدمن: الإعداد الأولي ---------------- -->
+  <section class="tab-panel" id="tab-setup">
+    <div class="card">
+      <div class="card-head"><h2 id="vehicle-form-title">تسجيل آلية جديدة</h2></div>
+      <form id="vehicle-form" class="form-grid" novalidate>
+        <input type="hidden" id="v-edit-id" value="">
+        <div class="field">
+          <label for="v-name">الآلية (النوع والرقم)</label>
+          <input id="v-name" placeholder="مثال: قلاب رقم 3" required>
+        </div>
+        <div class="field">
+          <label for="v-km">الكيلومتراج الحالي</label>
+          <input type="number" id="v-km" min="0" step="0.1" required>
+        </div>
+        <div class="field">
+          <label for="v-type">نوع الآلية</label>
+          <select id="v-type">
+            <option value="gabbala">جبالة</option>
+            <option value="pump">مضخة</option>
+            <option value="service">آلية خدمة</option>
+            <option value="silo">سيلو</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="v-fuel">كمية المازوت بالخزان</label>
+          <input type="number" id="v-fuel" min="0" step="0.1">
+        </div>
+        <div class="field">
+          <label for="v-hours">عدّاد ساعات العمل الأساس</label>
+          <input type="number" id="v-hours" min="0" step="0.1">
+        </div>
+        <p class="form-error" id="vehicle-error" hidden></p>
+        <div class="form-actions">
+          <button type="submit" class="btn-primary" id="v-submit-btn">حفظ الآلية</button>
+          <button type="button" class="btn-ghost" id="v-cancel-edit" hidden>إلغاء</button>
+        </div>
+      </form>
+      <p class="search-meta">لتعديل آلية مسجّلة، استخدم زر «تعديل» من تبويب «الآليات».</p>
     </div>
 
     <div class="card">
-      <h2>تقرير المخزون الشهري</h2>
-      <div id="fuel-stock-monthly"></div>
+      <div class="card-head"><h2 id="driver-form-title">تسجيل سائق جديد</h2></div>
+      <form id="driver-form" class="form-grid" novalidate>
+        <input type="hidden" id="d-edit-id" value="">
+        <div class="field field-wide">
+          <label for="d-name">اسم السائق</label>
+          <input id="d-name" required>
+        </div>
+        <div class="field field-wide">
+          <label>أنواع الآليات التي يمكنه قيادتها</label>
+          <div class="type-checks">
+            <label><input type="checkbox" name="d-type" value="gabbala"> جبالة</label>
+            <label><input type="checkbox" name="d-type" value="pump"> مضخة</label>
+            <label><input type="checkbox" name="d-type" value="service"> آلية خدمة</label>
+            <label><input type="checkbox" name="d-type" value="silo"> سيلو</label>
+          </div>
+        </div>
+        <p class="form-error" id="driver-error" hidden></p>
+        <div class="form-actions">
+          <button type="submit" class="btn-primary" id="d-submit-btn">حفظ السائق</button>
+          <button type="button" class="btn-ghost" id="d-cancel-edit" hidden>إلغاء</button>
+        </div>
+      </form>
+      <p class="search-meta">لتعديل سائق مسجّل، استخدم زر «تعديل» من تبويب «السائقون».</p>
+    </div>
+
+    <div class="card" id="fuel-baseline-card">
+      <div class="card-head"><h2>الرصيد الابتدائي لخزانات المازوت</h2></div>
+      <p class="search-meta" style="margin-top:0">يُضبط مرة واحدة لكل خزان من الثلاثة عند بدء العمل بالنظام، ويمكن تصحيحه لاحقًا عند الحاجة.</p>
+      <form id="fuel-baseline-form" class="form-grid" novalidate>
+        <div class="field">
+          <label for="fb-tank">الخزان</label>
+          <select id="fb-tank">
+            <option value="tank1">الخزان الأول</option>
+            <option value="tank2">الخزان الثاني</option>
+            <option value="tank3">الخزان الثالث</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="fb-qty">الكمية الابتدائية</label>
+          <input type="number" id="fb-qty" min="0" step="0.1" required>
+        </div>
+        <div class="field">
+          <label for="fb-meter">قراءة العدّاد الابتدائية</label>
+          <input type="number" id="fb-meter" min="0" step="0.1" required>
+        </div>
+        <p class="form-error" id="fuel-baseline-error" hidden></p>
+        <div class="form-actions"><button type="submit" class="btn-primary">حفظ الرصيد الابتدائي</button></div>
+      </form>
     </div>
   </section>
 
@@ -697,6 +821,9 @@
       <div class="field"><label for="e-date">تاريخ المغادرة</label><input type="date" id="e-date" required></div>
       <div class="field"><label>وقت المغادرة</label><div id="e-depart-wrap"></div></div>
       <div class="field" id="e-loadqty-field" hidden><label for="e-loadqty">كمية التحميل</label><input type="number" id="e-loadqty" min="0" step="0.1"></div>
+      <div class="field" id="e-technician-field" hidden><label for="e-technician">اسم الفني</label><input id="e-technician"></div>
+      <div class="field" id="e-assistant-field" hidden><label for="e-assistant">اسم مساعد الفني</label><input id="e-assistant"></div>
+      <div class="field" id="e-manualpour-field" hidden><label class="show-pw" style="margin:20px 0 0"><input type="checkbox" id="e-manualpour"> الصب يدوي</label></div>
       <div class="field field-wide"><label for="e-notes-out">ملاحظة الخروج</label><input type="text" id="e-notes-out" maxlength="300"></div>
 
       <div class="sep-block form-grid" style="gap:12px 16px;">
@@ -731,7 +858,8 @@ let vehicles = [];
 let drivers  = [];
 let fuelFills   = [];
 let fuelSupply  = [];
-let fuelBaseline = null;
+let fuelBaseline = {}; // { tank1: {initialQty,initialMeter}|null, tank2: ..., tank3: ... }
+let guestVisits = [];
 let currentRole = null;        // gate | fleet_manager | fuel | admin | fuel_warehouse_manager
 let currentUsername = null;
 let openReturnId = null;
@@ -942,10 +1070,82 @@ function pendingReturnIds(){
   return new Set(outbox.filter(o => o.kind === 'return').map(o => o.entryId));
 }
 
+function pendingByKind(kind){
+  return outbox.filter(o => o.kind === kind);
+}
+
+// نفس مبدأ pendingEntries: عناصر أُضيفت بلا اتصال تظهر فورًا في قائمتها،
+// وإلا ظنّ المستخدم أن التسجيل لم يحدث فكرّره.
+function pendingVehicles(){
+  return pendingByKind('add_vehicle').map(o => Object.assign(
+    { id: 'pending:' + o.ref, registeredAt: o.queuedAt, _pending: true }, o.body));
+}
+function pendingDrivers(){
+  return pendingByKind('add_driver').map(o => Object.assign(
+    { id: 'pending:' + o.ref, createdAt: o.queuedAt, _pending: true }, o.body));
+}
+function pendingFuelFills(){
+  return pendingByKind('fuel_fill').map(o => Object.assign(
+    { id: 'pending:' + o.ref, createdAt: o.queuedAt, _pending: true }, o.body));
+}
+function pendingFuelSupply(){
+  return pendingByKind('fuel_supply').map(o => Object.assign(
+    { id: 'pending:' + o.ref, createdAt: o.queuedAt, _pending: true }, o.body));
+}
+// نفس مبدأ pendingEntries/pendingReturnIds لكن لدخول/خروج الضيوف.
+function pendingGuestVisits(){
+  return pendingByKind('guest_in').map(o => Object.assign(
+    { id: 'pending:' + o.ref, status:'in', dateOut:null, timeOut:null, _pending: true }, o.body));
+}
+function pendingGuestExitIds(){
+  return new Set(pendingByKind('guest_out').map(o => o.entryId));
+}
+
+// تعديل معلّق (كيلومتراج، نوع، إلخ) يُعرَض فوق بيانات الصف الحالية — الاسم
+// وحده مرجع الربط لأن التعديل يُرسَل بمعرّف الخادم الحقيقي مباشرة.
+function overlayPendingEdit(list, kind){
+  const edits = pendingByKind(kind);
+  if(!edits.length) return list;
+  return list.map(item=>{
+    const pending = edits.find(o => o.entityId === item.id);
+    return pending ? Object.assign({}, item, pending.body, { _pendingEdit:true }) : item;
+  });
+}
+
+// كل نوع عملية معلّقة: الطريقة، المسار (target = معرّف حقيقي محلول لعمليات
+// العودة/التعديل)، وتسمية بشرية للعملية تُستخدم في رسالة الرفض النهائي.
+// resultKey: مفتاح الكائن بردّ الخادم عند النجاح، يُحفَظ لربط عملية لاحقة
+// معلّقة بنفس السجل (مثل عودة تتبع مغادرة، أو خروج ضيف يتبع دخوله).
+// resolvesFrom: هذا النوع يُرسَل بمعرّف كيان أُنشئ بعملية سابقة قد تكون معلّقة هي الأخرى.
+const OUTBOX_HANDLERS = {
+  depart:        { method:'POST', path:()=> '/api/entries',
+                    label:op=> `مغادرة ${op.body.vehicle}`, resultKey:'entry' },
+  return:        { method:'POST', path:(op,target)=> `/api/entries/${target}/return`,
+                    label:()=> 'تسجيل عودة', resolvesFrom:'depart' },
+  add_vehicle:   { method:'POST', path:()=> '/api/vehicles',
+                    label:op=> `إضافة الآلية ${op.body.name}` },
+  edit_vehicle:  { method:'PUT',  path:op=> `/api/vehicles/${op.entityId}`,
+                    label:op=> `تعديل الآلية ${op.body.name}` },
+  add_driver:    { method:'POST', path:()=> '/api/drivers',
+                    label:op=> `إضافة السائق ${op.body.name}` },
+  edit_driver:   { method:'PUT',  path:op=> `/api/drivers/${op.entityId}`,
+                    label:op=> `تعديل السائق ${op.body.name}` },
+  fuel_fill:     { method:'POST', path:()=> '/api/fuel/fills',
+                    label:op=> `تعبئة ${op.body.vehicle}` },
+  fuel_supply:   { method:'POST', path:()=> '/api/fuel/supply',
+                    label:()=> 'تعبئة الخزان الرئيسي' },
+  fuel_baseline: { method:'POST', path:()=> '/api/fuel/baseline',
+                    label:()=> 'ضبط الرصيد الابتدائي للمازوت' },
+  guest_in:      { method:'POST', path:()=> '/api/guests',
+                    label:op=> `تسجيل دخول ${op.body.vehicleDesc}`, resultKey:'visit' },
+  guest_out:     { method:'POST', path:(op,target)=> `/api/guests/${target}/exit`,
+                    label:()=> 'تسجيل خروج ضيف', resolvesFrom:'guest_in' }
+};
+
 /**
- * يرفع ما في الصندوق بالترتيب. يتوقّف عند أول فشل شبكي فيبقي الباقي للمحاولة
- * القادمة، أما الرفض النهائي من الخادم (4xx) فيُزال ويُعرض على المستخدم —
- * لأن إعادة محاولته إلى الأبد بلا فائدة.
+ * يرفع ما في الصندوق بالترتيب، لأي شاشة إدخال وليس البوابة فقط. يتوقّف عند
+ * أول فشل شبكي فيبقي الباقي للمحاولة القادمة، أما الرفض النهائي من الخادم
+ * (4xx) فيُزال ويُعرض على المستخدم — لأن إعادة محاولته إلى الأبد بلا فائدة.
  */
 async function flushOutbox(){
   if(syncing || !outbox.length || !currentRole) return;
@@ -958,23 +1158,22 @@ async function flushOutbox(){
   try{
     while(outbox.length){
       const op = outbox[0];
+      const handler = OUTBOX_HANDLERS[op.kind];
       let target = op.entryId;
-      if(op.kind === 'return' && String(target||'').startsWith('pending:')){
+      if(handler.resolvesFrom && String(target||'').startsWith('pending:')){
         const ref = String(target).slice('pending:'.length);
         target = refToId[ref];
         if(!target){
-          // مغادرتها لم تُرفع (رُفضت أو فُقدت) — لا وجهة لهذه العودة.
+          // العملية الأصل لم تُرفع (رُفضت أو فُقدت) — لا وجهة لهذه المتابعة.
           outbox.shift(); saveOutbox();
-          rejected.push({ op, message: 'لم تُرفع مغادرتها، فتعذّر ربط العودة بها.' });
+          rejected.push({ op, message: 'لم تُرفع العملية الأصل، فتعذّر ربطها بها.' });
           continue;
         }
       }
-      const path = op.kind === 'depart'
-        ? '/api/entries'
-        : `/api/entries/${target}/return`;
+      const path = handler.path(op, target);
       try{
-        const out = await api('POST', path, Object.assign({ clientRef: op.ref }, op.body), true);
-        if(op.kind === 'depart' && out && out.entry) refToId[op.ref] = out.entry.id;
+        const out = await api(handler.method, path, Object.assign({ clientRef: op.ref }, op.body), true);
+        if(handler.resultKey && out && out[handler.resultKey]) refToId[op.ref] = out[handler.resultKey].id;
         outbox.shift();
         saveOutbox();
       }catch(err){
@@ -994,9 +1193,7 @@ async function flushOutbox(){
 
   if(rejected.length){
     const first = rejected[0];
-    const what = first.op.kind === 'depart'
-      ? `مغادرة ${first.op.body.vehicle}`
-      : 'تسجيل عودة';
+    const what = OUTBOX_HANDLERS[first.op.kind].label(first.op);
     toast(`تعذّر حفظ ${what}: ${first.message}` +
           (rejected.length > 1 ? ` (و${rejected.length - 1} أخرى)` : ''), 'err');
   }
@@ -1039,6 +1236,54 @@ async function api(method, path, body, isSync){
   return data;
 }
 
+// تصدير PDF عام: يرسل عنوان/أعمدة/صفوف الجدول المعروض فعليًا (بلا إعادة حساب)
+// لمسار /api/export/pdf، ويُنزّل الملف تلقائيًا — لا نافذة طباعة متصفح.
+async function exportPdf(title, columns, rows){
+  let res;
+  try{
+    res = await fetch('/api/export/pdf', {
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({title, columns, rows})
+    });
+  }catch(err){
+    toast('تعذّر الوصول إلى السيرفر لتصدير PDF.', 'err');
+    return;
+  }
+  if(!res.ok){
+    let msg = `تعذّر توليد PDF (${res.status})`;
+    try{ const data = await res.json(); if(data.error) msg = data.error; }catch(e){}
+    toast(msg, 'err');
+    return;
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = title.replace(/[\\/:*?"<>|]/g,'').trim().slice(0,80) + '.pdf';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=> URL.revokeObjectURL(url), 10000);
+}
+
+// سجلّ مؤقّت يربط زر PDF بأعمدة/صفوف تقريره: تفادٍ لتضمين كل بيانات الجدول
+// كسلسلة JSON داخل HTML (حجم كبير ومخاطر ترميز)، فقط مفتاح قصير بدلًا منها.
+let pdfExportRegistry = {};
+let pdfExportSeq = 0;
+function pdfButton(title, columns, rows){
+  const key = 'p' + (pdfExportSeq++);
+  pdfExportRegistry[key] = { title, columns, rows };
+  return `<button type="button" class="btn-ghost btn-sm btn-pdf" data-pdf-key="${key}">تصدير PDF</button>`;
+}
+document.addEventListener('click', (ev)=>{
+  const btn = ev.target.closest('.btn-pdf');
+  if(!btn) return;
+  const entry = pdfExportRegistry[btn.dataset.pdfKey];
+  if(!entry) return;
+  exportPdf(entry.title, entry.columns, entry.rows);
+});
+
 function handleSessionExpired(){
   stopPolling();
   currentRole = null;
@@ -1056,7 +1301,8 @@ async function refresh(){
   drivers  = data.drivers || [];
   fuelFills = data.fuelFills || [];
   fuelSupply = data.fuelSupply || [];
-  fuelBaseline = data.fuelBaseline || null;
+  fuelBaseline = data.fuelBaseline || {};
+  guestVisits = data.guestVisits || [];
   if(data.role && data.role !== currentRole){ currentRole = data.role; applyRoleUI(); }
 }
 
@@ -1192,10 +1438,13 @@ function renderHero(alertUnionSize){
   const src = allEntries();
   const tripsToday = src.filter(e=>e.dateKey===tk).length;
   const outNow = src.filter(e=>e.status==='out').length;
+  const gabbalaNames = new Set(vehicles.filter(v=>v.type==='gabbala').map(v=>v.name.trim()));
+  const gabbalaOutNow = src.filter(e=> e.status==='out' && gabbalaNames.has((e.vehicle||'').trim())).length;
 
   const cards = [
     `<div class="kpi"><span class="n">${tripsToday}</span><span class="l">عمليات اليوم</span></div>`,
-    `<div class="kpi out-kpi"><span class="n">${outNow}</span><span class="l">في الخارج الآن</span></div>`
+    `<div class="kpi out-kpi"><span class="n">${outNow}</span><span class="l">في الخارج الآن</span></div>`,
+    `<div class="kpi"><span class="n">${gabbalaOutNow}/${gabbalaNames.size}</span><span class="l">جبالات بالخارج</span></div>`
   ];
   if(currentRole === 'fleet_manager' || currentRole === 'admin'){
     const customers = new Set(entries.map(e=>(e.customer||'').trim()).filter(Boolean)).size;
@@ -1284,6 +1533,79 @@ function renderRecent(){
   }).join('');
 }
 
+/* ---- آليات الضيوف ---- */
+function allGuestVisits(){
+  const closing = pendingGuestExitIds();
+  const merged = guestVisits.map(v => closing.has(v.id)
+    ? Object.assign({}, v, { status:'out', _pendingExit:true }) : v);
+  return merged.concat(pendingGuestVisits());
+}
+
+function renderGuestList(){
+  const box = $('guest-list');
+  const inside = allGuestVisits().filter(v=>v.status==='in')
+    .sort((a,b)=> (b.dateIn+b.timeIn).localeCompare(a.dateIn+a.timeIn));
+  $('guest-count').textContent = inside.length;
+  if(!inside.length){ box.innerHTML = '<p class="empty">لا يوجد ضيوف بالموقع الآن.</p>'; return; }
+  box.innerHTML = inside.map(v=>`
+    <div class="out-row ${v._pending?'pending':''}">
+      <div class="out-info">
+        <div class="veh">${escapeHtml(v.vehicleDesc)}${
+          v._pending ? ' <span class="badge badge-pending">بانتظار الإرسال</span>' : ''}</div>
+        <div class="cust">${escapeHtml(v.purpose)}</div>
+        <div class="meta">دخل ${fmtTime12(v.timeIn)} · ${v.dateIn}</div>
+      </div>
+      <button class="btn-primary btn-sm" data-guest-exit="${v.id}">تسجيل خروج</button>
+    </div>`).join('');
+}
+
+async function submitGuestIn(ev){
+  ev.preventDefault();
+  const err = $('guest-error');
+  err.hidden = true;
+  const vehicleDesc = $('g-vehicle').value.trim();
+  const purpose = $('g-purpose').value.trim();
+  if(!vehicleDesc || !purpose){
+    err.textContent = 'الرجاء تعبئة وصف المركبة وجهة الزيارة.';
+    err.hidden = false;
+    return;
+  }
+  const payload = { vehicleDesc, purpose, dateIn: todayKey(), timeIn: nowTime() };
+  try{
+    await api('POST', '/api/guests', payload);
+    $('guest-form').reset();
+    await refresh(); render();
+    toast(`سُجّل دخول ${vehicleDesc}`, 'ok');
+  }catch(e){
+    if(e.offline){
+      queueOperation({ kind:'guest_in', body: payload });
+      $('guest-form').reset();
+      render();
+      toast(`حُفظ دخول ${vehicleDesc} محليًا — سيُرسل عند عودة الاتصال`, 'ok');
+      return;
+    }
+    err.textContent = e.message;
+    err.hidden = false;
+  }
+}
+
+async function exitGuest(id){
+  const payload = { dateOut: todayKey(), timeOut: nowTime() };
+  try{
+    await api('POST', `/api/guests/${id}/exit`, payload);
+    await refresh(); render();
+    toast('سُجّل خروج الضيف', 'ok');
+  }catch(e){
+    if(e.offline){
+      queueOperation({ kind:'guest_out', entryId:id, body: payload });
+      render();
+      toast('حُفظ خروج الضيف محليًا — سيُرسل عند عودة الاتصال', 'ok');
+      return;
+    }
+    toast(e.message, 'err');
+  }
+}
+
 function renderLogTable(timeIds, distIds){
   $('export-csv').hidden = !canEditFleet();
   const term = normalizeSearch(logSearch);
@@ -1321,21 +1643,23 @@ function renderLogTable(timeIds, distIds){
 }
 
 function renderVehiclesTab(){
-  $('vehicle-form').closest('.card').hidden = !canEditFleet();
-  const sorted = [...vehicles].sort((a,b)=> a.name.localeCompare(b.name,'ar'));
+  const withEdits = overlayPendingEdit(vehicles, 'edit_vehicle');
+  const sorted = [...withEdits, ...pendingVehicles()].sort((a,b)=> a.name.localeCompare(b.name,'ar'));
   $('vehicle-empty').hidden = sorted.length > 0;
   $('vehicle-table-body').innerHTML = sorted.map(v=>{
     const out = entries.find(e=> e.status==='out' && (e.vehicle||'').trim()===v.name.trim());
     const last = lastKnownKm(v.name);
     const count = entries.filter(e=> (e.vehicle||'').trim()===v.name.trim()).length;
-    return `<tr class="${out?'is-out':''}">
-      <td class="veh-cell">${escapeHtml(v.name)}</td>
+    const pending = v._pending || v._pendingEdit;
+    return `<tr class="${out?'is-out':''} ${v._pending?'is-pending':''}">
+      <td class="veh-cell">${escapeHtml(v.name)}${
+        pending ? ' <span class="badge badge-pending">بانتظار الإرسال</span>' : ''}</td>
       <td>${VEHICLE_TYPE_LABEL[v.type] || '—'}</td>
       <td>${out ? '<span class="badge badge-out">في الخارج</span>' : '<span class="badge badge-ok">في المجبل</span>'}</td>
       <td>${v.baselineKm}</td>
       <td>${last !== null ? last : '—'}</td>
       <td>${count}</td>
-      <td class="row-actions">${canEditFleet() ? `
+      <td class="row-actions">${canManageFleetSetup() && !pending ? `
         <button class="btn-edit" data-id="${v.id}">تعديل</button>
         <button class="btn-delete" data-id="${v.id}">حذف</button>` : ''}</td>
     </tr>`;
@@ -1343,6 +1667,8 @@ function renderVehiclesTab(){
 }
 
 const VEHICLE_TYPE_LABEL = { gabbala:'جبالة', pump:'مضخة', service:'آلية خدمة', silo:'سيلو' };
+const TANKS = ['tank1', 'tank2', 'tank3'];
+const TANK_LABEL = { tank1:'الخزان الأول', tank2:'الخزان الثاني', tank3:'الخزان الثالث' };
 
 /* ---- السائقون ---- */
 function resetDriverForm(){
@@ -1366,13 +1692,21 @@ async function submitDriver(ev){
   if(!name){ err.textContent = 'اسم السائق مطلوب.'; err.hidden = false; return; }
   const allowedTypes = getCheckedTypes();
   const editId = $('d-edit-id').value;
+  const body = {name, allowedTypes};
   try{
-    if(editId) await api('PUT', `/api/drivers/${editId}`, {name, allowedTypes});
-    else       await api('POST', '/api/drivers', {name, allowedTypes});
+    if(editId) await api('PUT', `/api/drivers/${editId}`, body);
+    else       await api('POST', '/api/drivers', body);
     resetDriverForm();
     await refresh(); render();
     toast(editId ? 'حُفظت التعديلات' : `أُضيف السائق ${name}`, 'ok');
   }catch(e){
+    if(e.offline){
+      queueOperation(editId ? { kind:'edit_driver', entityId:editId, body } : { kind:'add_driver', body });
+      resetDriverForm();
+      render();
+      toast(`حُفظت ${editId?'تعديلات':'إضافة'} السائق ${name} محليًا — ستُرسل عند عودة الاتصال`, 'ok');
+      return;
+    }
     err.textContent = e.message;
     err.hidden = false;
   }
@@ -1404,15 +1738,16 @@ async function deleteDriverAction(id){
 }
 
 function renderDriversTab(){
-  $('driver-form').closest('.card').hidden = !canEditFleet();
-  const sorted = [...drivers].sort((a,b)=> a.name.localeCompare(b.name,'ar'));
+  const withEdits = overlayPendingEdit(drivers, 'edit_driver');
+  const sorted = [...withEdits, ...pendingDrivers()].sort((a,b)=> a.name.localeCompare(b.name,'ar'));
   $('driver-empty').hidden = sorted.length > 0;
   $('driver-table-body').innerHTML = sorted.map(d=>{
     const types = d.allowedTypes.map(t=> VEHICLE_TYPE_LABEL[t] || t).join('، ') || '—';
-    return `<tr>
-      <td>${escapeHtml(d.name)}</td>
+    const pending = d._pending || d._pendingEdit;
+    return `<tr class="${d._pending?'is-pending':''}">
+      <td>${escapeHtml(d.name)}${pending ? ' <span class="badge badge-pending">بانتظار الإرسال</span>' : ''}</td>
       <td>${escapeHtml(types)}</td>
-      <td class="row-actions">${canEditFleet() ? `
+      <td class="row-actions">${canManageFleetSetup() && !pending ? `
         <button class="btn-edit" data-id="${d.id}">تعديل</button>
         <button class="btn-delete" data-id="${d.id}">حذف</button>` : ''}</td>
     </tr>`;
@@ -1422,45 +1757,67 @@ function renderDriversTab(){
 /* ---- المازوت ---- */
 function renderFuelTab(){
   const isFuel = currentRole === 'fuel';
-  $('fuel-baseline-card').hidden = !isFuel;
   $('fuel-fill-card').hidden = !isFuel;
   $('fuel-supply-card').hidden = !isFuel;
 
-  if(isFuel && document.activeElement !== $('fb-qty') && document.activeElement !== $('fb-meter')){
-    $('fb-qty').value = fuelBaseline ? fuelBaseline.initialQty : '';
-    $('fb-meter').value = fuelBaseline ? fuelBaseline.initialMeter : '';
-  }
-
-  $('fuel-fill-empty').hidden = fuelFills.length > 0;
-  $('fuel-fill-table-body').innerHTML = fuelFills.map(f=>`<tr>
+  const pendingFills = pendingFuelFills();
+  $('fuel-fill-empty').hidden = (fuelFills.length + pendingFills.length) > 0;
+  // فرق ساعات العمل منذ آخر تعبئة لنفس الآلية: نفس مبدأ حساب "الكمية المضافة"
+  // بجدول تعبئة الخزان، لكن لكل آلية على حدة — القراءة السابقة زمنيًا هي أول
+  // ظهور لاحق لنفس الآلية بالقائمة (المرتَّبة تنازليًا)، أو عدّادها الأساس.
+  $('fuel-fill-table-body').innerHTML = fuelFills.map((f,i)=>{
+    const prevFill = fuelFills.slice(i+1).find(x=>x.vehicle===f.vehicle);
+    const vBase = vehicles.find(v=>v.name===f.vehicle);
+    const prevHours = prevFill ? prevFill.workHours : (vBase ? vBase.workHoursBaseline : null);
+    const delta = (f.workHours==null || prevHours==null) ? null : (f.workHours - prevHours);
+    const deltaCell = delta===null ? '—' : (delta<0 ? 'العدّاد أقل من السابق' : delta.toFixed(1));
+    return `<tr>
       <td>${f.dateKey}</td><td>${fmtTime12(f.time)}</td><td class="veh-cell">${escapeHtml(f.vehicle)}</td>
-      <td>${f.km}</td><td>${f.qty}</td><td>${f.workHours ?? '—'}</td>
+      <td>${TANK_LABEL[f.tank] || f.tank}</td>
+      <td>${f.km}</td><td>${f.qty}</td><td>${f.workHours ?? '—'}</td><td>${deltaCell}</td><td>${f.dispenserMeter ?? '—'}</td>
+    </tr>`;
+  }).join('') + pendingFills.map(f=>`<tr class="is-pending">
+      <td>${f.dateKey}</td><td>${fmtTime12(f.time)}</td>
+      <td class="veh-cell">${escapeHtml(f.vehicle)} <span class="badge badge-pending">بانتظار الإرسال</span></td>
+      <td>${TANK_LABEL[f.tank] || f.tank}</td>
+      <td>${f.km}</td><td>${f.qty}</td><td>${f.workHours ?? '—'}</td><td>—</td><td>${f.dispenserMeter ?? '—'}</td>
     </tr>`).join('');
 
-  // الكمية المضافة تُحسَب من الفرق عن القراءة السابقة زمنيًا (أو عن الرصيد
-  // الابتدائي لأقدم قراءة) — نفس مبدأ حساب مسافة الرحلة من كيلومتراج الآلية.
-  $('fuel-supply-empty').hidden = fuelSupply.length > 0;
+  // الكمية المضافة تُحسَب من الفرق عن القراءة السابقة زمنيًا لنفس الخزان (أو
+  // عن رصيده الابتدائي لأقدم قراءة) — نفس مبدأ حساب مسافة الرحلة من كيلومتراج
+  // الآلية. القراءات المعلّقة (بانتظار الإرسال) لا تدخل هذا الحساب حتى تُؤكَّد.
+  const pendingSupply = pendingFuelSupply();
+  $('fuel-supply-empty').hidden = (fuelSupply.length + pendingSupply.length) > 0;
   $('fuel-supply-table-body').innerHTML = fuelSupply.map((s,i)=>{
-    const prevReading = fuelSupply[i+1] ? fuelSupply[i+1].meterReading
-      : (fuelBaseline ? fuelBaseline.initialMeter : null);
+    const prevForTank = fuelSupply.slice(i+1).find(x=>x.tank===s.tank);
+    const base = fuelBaseline[s.tank];
+    const prevReading = prevForTank ? prevForTank.meterReading : (base ? base.initialMeter : null);
     const delta = prevReading === null ? null : (s.meterReading - prevReading);
     return `<tr>
-      <td>${s.dateKey}</td><td>${fmtTime12(s.time)}</td><td>${s.meterReading}</td>
+      <td>${s.dateKey}</td><td>${fmtTime12(s.time)}</td><td>${TANK_LABEL[s.tank] || s.tank}</td><td>${s.meterReading}</td>
       <td>${delta === null ? '—' : (delta < 0 ? 'العدّاد أقل من السابق' : delta.toFixed(1))}</td>
     </tr>`;
-  }).join('');
+  }).join('') + pendingSupply.map(s=>`<tr class="is-pending">
+      <td>${s.dateKey}</td><td>${fmtTime12(s.time)}</td><td>${TANK_LABEL[s.tank] || s.tank}</td><td>${s.meterReading}</td>
+      <td><span class="badge badge-pending">بانتظار الإرسال</span></td>
+    </tr>`).join('');
 
   renderFuelStockReport();
 }
 
 /**
- * تقرير المخزون: رصيد افتتاحي + تعبئة اليوم − استهلاك اليوم = رصيد ختامي،
- * بالضبط كما يُحسب إجمالي مسافة آلية من كيلومتراجها — فترة عدّاد مُستبدَل
- * (فرق سالب) تُستثنى من التعبئة المحسوبة بدل أن تُحتسب صفرًا أو سالبة.
+ * تقرير المخزون لخزان واحد: رصيد افتتاحي + تعبئة اليوم − استهلاك اليوم = رصيد
+ * ختامي، بالضبط كما يُحسب إجمالي مسافة آلية من كيلومتراجها — فترة عدّاد
+ * مُستبدَل (فرق سالب) تُستثنى من التعبئة المحسوبة بدل أن تُحتسب صفرًا أو سالبة.
+ * كل خزان من الثلاثة مستقلّ تمامًا: تعبئته وسحبه ورصيده الابتدائي خاصة به.
  */
-function computeFuelLedger(){
-  const suppliesAsc = [...fuelSupply].sort((a,b)=> (a.dateKey+a.time).localeCompare(b.dateKey+b.time));
-  let prevMeter = fuelBaseline ? fuelBaseline.initialMeter : null;
+function computeFuelLedger(tank){
+  const supplies = fuelSupply.filter(s=>s.tank===tank);
+  const fills = fuelFills.filter(f=>f.tank===tank);
+  const base = fuelBaseline[tank] || null;
+
+  const suppliesAsc = [...supplies].sort((a,b)=> (a.dateKey+a.time).localeCompare(b.dateKey+b.time));
+  let prevMeter = base ? base.initialMeter : null;
   const supplyDeltas = suppliesAsc.map(s=>{
     let delta = prevMeter === null ? null : (s.meterReading - prevMeter);
     if(delta !== null && delta < 0) delta = null;
@@ -1468,35 +1825,47 @@ function computeFuelLedger(){
     return { dateKey: s.dateKey, qty: delta };
   });
 
-  const dates = new Set([...supplyDeltas.map(s=>s.dateKey), ...fuelFills.map(f=>f.dateKey)]);
+  const dates = new Set([...supplyDeltas.map(s=>s.dateKey), ...fills.map(f=>f.dateKey)]);
   const sortedDates = [...dates].sort();
 
-  let balance = fuelBaseline ? fuelBaseline.initialQty : 0;
+  let balance = base ? base.initialQty : 0;
   return sortedDates.map(date=>{
     const supplied = supplyDeltas.filter(s=>s.dateKey===date).reduce((sum,s)=> sum + (s.qty||0), 0);
-    const consumed = fuelFills.filter(f=>f.dateKey===date).reduce((sum,f)=> sum + (Number(f.qty)||0), 0);
+    const consumed = fills.filter(f=>f.dateKey===date).reduce((sum,f)=> sum + (Number(f.qty)||0), 0);
     const opening = balance;
     balance = opening + supplied - consumed;
     return { date, opening, supplied, consumed, closing: balance };
   });
 }
 
-function renderFuelStockReport(){
-  const daily = computeFuelLedger();
-  if(!daily.length){
-    $('fuel-stock-daily').innerHTML = '<p class="empty">لا توجد بيانات مازوت كافية بعد.</p>';
-    $('fuel-stock-monthly').innerHTML = '<p class="empty">لا توجد بيانات مازوت كافية بعد.</p>';
-    return;
-  }
+// إجمالي مُجمَّع للخزانات الثلاثة: مجموع رصيد كل خزان بكل تاريخ — خزان بلا
+// نشاط بتاريخ معيّن يُبقي رصيده كما كان (يُرحَّل) بدل اعتباره صفرًا.
+function combineTankLedgers(perTank){
+  const allDates = new Set();
+  TANKS.forEach(t=> perTank[t].forEach(r=> allDates.add(r.date)));
+  const sortedDates = [...allDates].sort();
+  const rowByDate = {};
+  TANKS.forEach(t=>{ rowByDate[t] = {}; perTank[t].forEach(r=> rowByDate[t][r.date] = r); });
+  const lastClosing = {};
+  TANKS.forEach(t=> lastClosing[t] = fuelBaseline[t] ? fuelBaseline[t].initialQty : 0);
+  return sortedDates.map(date=>{
+    let opening=0, supplied=0, consumed=0, closing=0;
+    TANKS.forEach(t=>{
+      const r = rowByDate[t][date];
+      if(r){ opening += r.opening; supplied += r.supplied; consumed += r.consumed; closing += r.closing; lastClosing[t] = r.closing; }
+      else { opening += lastClosing[t]; closing += lastClosing[t]; }
+    });
+    return { date, opening, supplied, consumed, closing };
+  });
+}
 
+function ledgerTablesHtml(daily){
+  if(!daily.length) return '<p class="empty">لا توجد بيانات كافية بعد.</p>';
   const row = r => `<tr><td>${r.label}</td><td>${r.opening.toFixed(1)}</td><td>${r.supplied.toFixed(1)}</td>
     <td>${r.consumed.toFixed(1)}</td><td>${r.closing.toFixed(1)}</td></tr>`;
   const head = '<th></th><th>افتتاحي</th><th>تعبئة</th><th>استهلاك</th><th>ختامي</th>';
 
   const dailyRows = [...daily].reverse().map(d=> row({label:d.date, ...d}));
-  $('fuel-stock-daily').innerHTML =
-    `<div class="table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${dailyRows.join('')}</tbody></table></div>`;
-
   const byMonth = {};
   daily.forEach(d=>{
     const month = d.date.slice(0,7);
@@ -1506,14 +1875,73 @@ function renderFuelStockReport(){
     byMonth[month].closing = d.closing;
   });
   const monthlyRows = Object.values(byMonth).reverse().map(row);
-  $('fuel-stock-monthly').innerHTML =
-    `<div class="table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${monthlyRows.join('')}</tbody></table></div>`;
+  return `
+    <p class="search-meta">يومي</p>
+    <div class="table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${dailyRows.join('')}</tbody></table></div>
+    <p class="search-meta">شهري</p>
+    <div class="table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${monthlyRows.join('')}</tbody></table></div>`;
+}
+
+function renderFuelStockReport(){
+  const perTank = {};
+  TANKS.forEach(t=> perTank[t] = computeFuelLedger(t));
+  const combined = combineTankLedgers(perTank);
+
+  $('fuel-stock-report').innerHTML =
+    `<h3>إجمالي الخزانات الثلاثة</h3>${ledgerTablesHtml(combined)}` +
+    TANKS.map(t=> `<h3>${TANK_LABEL[t]}</h3>${ledgerTablesHtml(perTank[t])}`).join('');
+
+  renderFuelReconcileReport();
+}
+
+/**
+ * تصالح عدّاد الكازية: مجموع كمية التعبئة اليدوية بفترة مقابل الفرق بين أول
+ * وآخر قراءة لعدّاد الكازية التراكمي (على مستوى المحطة كلها، بلا علاقة
+ * بالخزان) بنفس الفترة — تنبيه عند فرق نسبي أكبر من 5%. القراءات المفقودة
+ * لبعض التعبئات (dispenserMeter فارغ) لا تمنع الحساب، فقط تُقلّل دقّته.
+ */
+function computeDispenserReconcile(){
+  const withMeter = fuelFills.filter(f=> f.dispenserMeter !== null && f.dispenserMeter !== undefined);
+  const dates = new Set([...fuelFills.map(f=>f.dateKey), ...withMeter.map(f=>f.dateKey)]);
+  const sortedDates = [...dates].sort();
+  return sortedDates.map(date=>{
+    const dayFills = fuelFills.filter(f=>f.dateKey===date);
+    const dayMeters = withMeter.filter(f=>f.dateKey===date).sort((a,b)=> a.time.localeCompare(b.time));
+    const manualQty = dayFills.reduce((sum,f)=> sum + (Number(f.qty)||0), 0);
+    const meterDelta = dayMeters.length >= 2
+      ? dayMeters[dayMeters.length-1].dispenserMeter - dayMeters[0].dispenserMeter
+      : null;
+    const diffPct = (meterDelta === null || meterDelta === 0) ? null
+      : Math.abs(manualQty - meterDelta) / meterDelta * 100;
+    return { date, manualQty, meterDelta, diffPct };
+  });
+}
+
+function renderFuelReconcileReport(){
+  const daily = computeDispenserReconcile();
+  if(!daily.length){
+    $('fuel-reconcile-report').innerHTML = '<p class="empty">لا توجد بيانات كافية بعد.</p>';
+    return;
+  }
+  const rows = [...daily].reverse().map(r=>{
+    const alert = r.diffPct !== null && r.diffPct > 5;
+    return `<tr class="${alert?'is-alert':''}">
+      <td>${r.date}</td><td>${r.manualQty.toFixed(1)}</td>
+      <td>${r.meterDelta===null?'—':r.meterDelta.toFixed(1)}</td>
+      <td>${r.diffPct===null?'—':r.diffPct.toFixed(1)+'%'}</td>
+      <td>${alert?'<span class="badge badge-warn">فرق أكبر من 5%</span>':''}</td>
+    </tr>`;
+  }).join('');
+  $('fuel-reconcile-report').innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>التاريخ</th><th>مجموع الكمية اليدوية</th><th>فرق عدّاد الكازية</th><th>الفرق النسبي</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
 }
 
 async function submitFuelBaseline(ev){
   ev.preventDefault();
   const err = $('fuel-baseline-error');
   err.hidden = true;
+  const tank = $('fb-tank').value;
   const initialQty = parseFloat($('fb-qty').value);
   const initialMeter = parseFloat($('fb-meter').value);
   if(isNaN(initialQty) || isNaN(initialMeter)){
@@ -1521,11 +1949,19 @@ async function submitFuelBaseline(ev){
     err.hidden = false;
     return;
   }
+  const body = {tank, initialQty, initialMeter};
   try{
-    await api('POST', '/api/fuel/baseline', {initialQty, initialMeter});
+    await api('POST', '/api/fuel/baseline', body);
     await refresh(); render();
-    toast('تم حفظ الرصيد الابتدائي', 'ok');
-  }catch(e){ err.textContent = e.message; err.hidden = false; }
+    toast(`تم حفظ الرصيد الابتدائي لـ${TANK_LABEL[tank]}`, 'ok');
+  }catch(e){
+    if(e.offline){
+      queueOperation({ kind:'fuel_baseline', body });
+      toast('حُفظ الرصيد الابتدائي محليًا — سيُرسل عند عودة الاتصال', 'ok');
+      return;
+    }
+    err.textContent = e.message; err.hidden = false;
+  }
 }
 
 async function submitFuelFill(ev){
@@ -1535,25 +1971,58 @@ async function submitFuelFill(ev){
   const vehicle = $('ff-vehicle').value.trim();
   const km = parseFloat($('ff-km').value);
   const qty = parseFloat($('ff-qty').value);
+  const tank = $('ff-tank').value;
   const hoursRaw = $('ff-hours').value.trim();
+  const dispenserRaw = $('ff-dispenser').value.trim();
   if(!vehicle || isNaN(km) || isNaN(qty)){
     err.textContent = 'الرجاء إدخال الآلية والكيلومتراج وكمية التعبئة.';
     err.hidden = false;
     return;
   }
   const payload = {
-    vehicle, km, qty,
+    vehicle, km, qty, tank,
     workHours: hoursRaw === '' ? null : parseFloat(hoursRaw),
+    dispenserMeter: dispenserRaw === '' ? null : parseFloat(dispenserRaw),
     dateKey: todayKey(),
     time: getTimeGroup('ff-time')
   };
-  try{
-    await api('POST', '/api/fuel/fills', payload);
+  const clearForm = ()=>{
     $('fuel-fill-form').reset();
     $('ff-time-wrap').innerHTML = timeGroupHTML('ff-time', nowTime());
+  };
+  try{
+    await api('POST', '/api/fuel/fills', payload);
+    clearForm();
     await refresh(); render();
     toast(`سُجّلت تعبئة ${vehicle}`, 'ok');
   }catch(e){
+    if(e.offline){
+      queueOperation({ kind:'fuel_fill', body:payload });
+      clearForm();
+      render();
+      toast(`حُفظت تعبئة ${vehicle} محليًا — ستُرسل عند عودة الاتصال`, 'ok');
+      return;
+    }
+    if(e.status === 409 && /أقل من آخر قراءة/.test(e.message)){
+      if(confirm(e.message + '\n\nهل تريد المتابعة على أي حال (مثلًا بعد استبدال العدّاد)؟')){
+        try{
+          await api('POST', '/api/fuel/fills', {...payload, force:true});
+          clearForm();
+          await refresh(); render();
+          toast(`سُجّلت تعبئة ${vehicle}`, 'ok');
+        }catch(e2){
+          if(e2.offline){
+            queueOperation({ kind:'fuel_fill', body:{...payload, force:true} });
+            clearForm();
+            render();
+            toast(`حُفظت تعبئة ${vehicle} محليًا — ستُرسل عند عودة الاتصال`, 'ok');
+            return;
+          }
+          err.textContent = e2.message; err.hidden = false;
+        }
+      }
+      return;
+    }
     err.textContent = e.message;
     err.hidden = false;
   }
@@ -1564,12 +2033,13 @@ async function submitFuelSupply(ev){
   const err = $('fuel-supply-error');
   err.hidden = true;
   const meterReading = parseFloat($('fs-meter').value);
+  const tank = $('fs-tank').value;
   if(isNaN(meterReading)){
     err.textContent = 'الرجاء إدخال قراءة العدّاد.';
     err.hidden = false;
     return;
   }
-  const payload = { meterReading, dateKey: todayKey(), time: getTimeGroup('fs-time') };
+  const payload = { meterReading, tank, dateKey: todayKey(), time: getTimeGroup('fs-time') };
   const finish = async ()=>{
     $('fuel-supply-form').reset();
     $('fs-time-wrap').innerHTML = timeGroupHTML('fs-time', nowTime());
@@ -1580,10 +2050,28 @@ async function submitFuelSupply(ev){
     await api('POST', '/api/fuel/supply', payload);
     await finish();
   }catch(e){
+    if(e.offline){
+      queueOperation({ kind:'fuel_supply', body:payload });
+      $('fuel-supply-form').reset();
+      $('fs-time-wrap').innerHTML = timeGroupHTML('fs-time', nowTime());
+      render();
+      toast('حُفظت تعبئة الخزان محليًا — ستُرسل عند عودة الاتصال', 'ok');
+      return;
+    }
     if(e.status === 409 && /أقل من آخر قراءة/.test(e.message)){
       if(confirm(e.message + '\n\nهل تريد المتابعة على أي حال (مثلًا بعد استبدال العدّاد)؟')){
         try{ await api('POST', '/api/fuel/supply', {...payload, force:true}); await finish(); }
-        catch(e2){ err.textContent = e2.message; err.hidden = false; }
+        catch(e2){
+          if(e2.offline){
+            queueOperation({ kind:'fuel_supply', body:{...payload, force:true} });
+            $('fuel-supply-form').reset();
+            $('fs-time-wrap').innerHTML = timeGroupHTML('fs-time', nowTime());
+            render();
+            toast('حُفظت تعبئة الخزان محليًا — ستُرسل عند عودة الاتصال', 'ok');
+            return;
+          }
+          err.textContent = e2.message; err.hidden = false;
+        }
       }
       return;
     }
@@ -1592,8 +2080,80 @@ async function submitFuelSupply(ev){
   }
 }
 
+// نطاق التاريخ المخصّص لتبويب التقارير: فارغ يعني كل البيانات المتاحة ضمن
+// نافذة العرض الحالية (windowDays من السيرفر)، وليس "بلا حدود" مطلقًا.
+function reportDateRange(){
+  return { from: $('rep-from').value || null, to: $('rep-to').value || null };
+}
+function filterByDateRange(list, dateKeyOf){
+  const { from, to } = reportDateRange();
+  if(!from && !to) return list;
+  return list.filter(item=>{
+    const k = dateKeyOf(item);
+    if(!k) return false;
+    if(from && k < from) return false;
+    if(to && k > to) return false;
+    return true;
+  });
+}
+function reportGranularity(){ return $('rep-granularity').value === 'day' ? 'day' : 'month'; }
+
+// كمية الصب المضبوخة لكل زبون: مجموع كمية تحميل رحلات الجبالات المكتملة له
+// ضمن القائمة المُعطاة — مطابقة باسم الزبون فقط (الآلية تسجّله عند الخروج
+// أصلًا)، بلا اعتبار للتوقيت، حسب طلب المستخدم صراحة.
+function pumpedQtyByCustomer(list){
+  const g = {};
+  list.forEach(e=>{
+    const v = vehicles.find(v=>v.name===e.vehicle);
+    if(!v || v.type !== 'gabbala') return;
+    const customer = (e.customer||'').trim();
+    if(!customer) return;
+    g[customer] = (g[customer]||0) + (Number(e.loadQty)||0);
+  });
+  return g;
+}
+
+// تقرير المضخات: لكل شهر ومضخة، مجموع الكمية المضبوخة (أعلاه) لكل زبون مميّز
+// خدمته تلك المضخة بذلك الشهر — زبون خدمته مضختان مختلفتان بنفس الشهر يُحسب
+// له كامل كميته لكل واحدة (حد معروف ومقصود لمطابقة الاسم فقط، لا توقيت).
+function pumpMonthlyReport(done){
+  const months = new Set(done.map(e=>(e.dateKey||'').slice(0,7)).filter(Boolean));
+  const rows = [];
+  months.forEach(month=>{
+    const monthEntries = done.filter(e=>(e.dateKey||'').slice(0,7)===month);
+    const byCustomer = pumpedQtyByCustomer(monthEntries);
+    const byPump = {};
+    monthEntries.forEach(e=>{
+      const v = vehicles.find(v=>v.name===e.vehicle);
+      if(!v || v.type !== 'pump') return;
+      const pump = (e.vehicle||'').trim();
+      const customer = (e.customer||'').trim();
+      if(!pump || !customer) return;
+      const s = byPump[pump] = byPump[pump] || { customers:new Set(), qty:0, trips:0 };
+      s.trips++;
+      if(!s.customers.has(customer)){ s.customers.add(customer); s.qty += byCustomer[customer] || 0; }
+    });
+    Object.entries(byPump).forEach(([pump,s])=> rows.push({ month, key:pump, trips:s.trips, qty:s.qty }));
+  });
+  return rows;
+}
+
+// مقارنة كيلومترات البوابة (آخر رحلة مكتملة) بكيلومترات المازوت (أعلى قراءة
+// كيلومتراج بسجل التعبئة) لكل آلية — فرق كبير قد يعني تسجيلًا ناقصًا بأحدهما.
+function gateVsFuelKmReport(){
+  return vehicles.map(v=>{
+    const gateKms = entries.filter(e=>e.vehicle===v.name && e.status==='done' && e.km!==null && e.km!==undefined).map(e=>Number(e.km));
+    const fuelKms = fuelFills.filter(f=>f.vehicle===v.name).map(f=>Number(f.km));
+    const gateLast = gateKms.length ? Math.max(...gateKms) : null;
+    const fuelLast = fuelKms.length ? Math.max(...fuelKms) : null;
+    return { vehicle: v.name, gateLast, fuelLast,
+      diff: (gateLast!==null && fuelLast!==null) ? gateLast - fuelLast : null };
+  }).filter(r=> r.gateLast!==null || r.fuelLast!==null);
+}
+
 function renderReports(timeIds, distIds){
-  const done = entries.filter(e=>e.status==='done');
+  const doneAll = entries.filter(e=>e.status==='done');
+  const done = filterByDateRange(doneAll, e=>e.dateKey);
 
   const union = done.filter(e=> timeIds.has(e.id) || distIds.has(e.id))
                     .sort((a,b)=> getDepartDateTime(b)-getDepartDateTime(a));
@@ -1615,10 +2175,11 @@ function renderReports(timeIds, distIds){
     return g;
   };
 
-  const simpleReport = (boxId, field, otherCol, otherField) => {
+  const simpleReport = (boxId, field, otherCol, otherField, searchTerm) => {
     const g = groupBy(field);
-    const keys = Object.keys(g).sort((a,b)=>a.localeCompare(b,'ar'));
-    $(boxId).innerHTML = keys.length===0 ? '<p class="empty">لا توجد عمليات مكتملة بعد.</p>' : keys.map(key=>{
+    let keys = Object.keys(g).sort((a,b)=>a.localeCompare(b,'ar'));
+    if(searchTerm) keys = keys.filter(k=> k.toLowerCase().includes(searchTerm.toLowerCase()));
+    $(boxId).innerHTML = keys.length===0 ? '<p class="empty">لا توجد عمليات مطابقة.</p>' : keys.map(key=>{
       const list = g[key].sort((a,b)=> getDepartDateTime(a)-getDepartDateTime(b));
       const totalDist = list.reduce((s,e)=> s + (e._distance||0), 0);
       const avgDur = list.reduce((s,e)=> s + (e._durationMin||0), 0) / list.length;
@@ -1629,25 +2190,33 @@ function renderReports(timeIds, distIds){
           <td>${fmtDuration(e._durationMin)} ${timeIds.has(e.id)?'⏱️⚠️':''}</td>
           <td>${fmtDistance(e._distance, e)} ${distIds.has(e.id)?'📏⚠️':''}</td>
         </tr>`).join('');
+      const pdfRows = list.map(e=>[e.dateKey, fmtTime12(e.departTime), e[otherField], e.customer,
+        fmtDuration(e._durationMin), fmtDistance(e._distance, e)]);
       return `<div class="group">
         <div class="group-head"><span>${escapeHtml(key)}</span>
-        <span class="total">${list.length} عملية · متوسط المدة ${fmtDuration(Math.round(avgDur))} · إجمالي المسافة ${totalDist.toFixed(1)} كم</span></div>
+        <span class="total">${list.length} عملية · متوسط المدة ${fmtDuration(Math.round(avgDur))} · إجمالي المسافة ${totalDist.toFixed(1)} كم
+        ${pdfButton(key, ['التاريخ','المغادرة',otherCol,'الزبون','المدة','المسافة'], pdfRows)}</span></div>
         <div class="table-wrap"><table><thead><tr>
           <th>التاريخ</th><th>المغادرة</th><th>${otherCol}</th><th>الزبون</th><th>المدة</th><th>المسافة</th>
         </tr></thead><tbody>${rows}</tbody></table></div></div>`;
     }).join('');
   };
 
-  simpleReport('report-vehicles', 'vehicle', 'السائق', 'driver');
-  simpleReport('report-drivers',  'driver',  'الآلية', 'vehicle');
+  simpleReport('report-vehicles', 'vehicle', 'السائق', 'driver', $('report-vehicles-search').value.trim());
+  simpleReport('report-drivers',  'driver',  'الآلية', 'vehicle', $('report-drivers-search').value.trim());
 
   const byCustomer = groupBy('customer');
   const cKeys = Object.keys(byCustomer).sort((a,b)=>a.localeCompare(b,'ar'));
+  const pumpedTotals = pumpedQtyByCustomer(done);
   $('report-customers').innerHTML = cKeys.length===0 ? '<p class="empty">لا توجد عمليات مكتملة بعد.</p>' : cKeys.map(key=>{
     const list = byCustomer[key];
     const avgDur = list.reduce((s,e)=> s+(e._durationMin||0), 0)/list.length;
     const valid = list.filter(e=> e._distance!==null && !isNaN(e._distance));
     const avgDist = valid.length ? valid.reduce((s,e)=>s+e._distance,0)/valid.length : null;
+    const pumps = new Set(list.filter(e=>{
+      const v = vehicles.find(v=>v.name===e.vehicle);
+      return v && v.type === 'pump';
+    }).map(e=>e.vehicle));
     const byVeh = {};
     list.forEach(e=>{
       const vk=(e.vehicle||'').trim();
@@ -1664,34 +2233,55 @@ function renderReports(timeIds, distIds){
       </tr>`).join('');
     return `<div class="group">
       <div class="group-head"><span>${escapeHtml(key)}</span>
-      <span class="total">${list.length} عملية · متوسط المدة ${fmtDuration(Math.round(avgDur))} · متوسط المسافة ${avgDist!==null?avgDist.toFixed(1)+' كم':'—'}</span></div>
+      <span class="total">${list.length} عملية · متوسط المدة ${fmtDuration(Math.round(avgDur))} · متوسط المسافة ${avgDist!==null?avgDist.toFixed(1)+' كم':'—'}
+      · الكمية المضخوخة ${(pumpedTotals[key]||0).toFixed(1)} · المضخات: ${pumps.size? [...pumps].map(escapeHtml).join('، ') : '—'}</span></div>
       <div class="table-wrap"><table><thead><tr>
         <th>الآلية</th><th>عدد الرحلات</th><th>متوسط المدة</th><th>إجمالي المسافة</th><th>تجاوز وقت</th><th>تجاوز مسافة</th>
       </tr></thead><tbody>${rows}</tbody></table></div></div>`;
   }).join('');
 
+  const pumpRows = pumpMonthlyReport(done);
+  $('report-pumps').innerHTML = monthlyTable(pumpRows, 'المضخة', [
+    { label:'عدد الرحلات', value:r=>r.trips },
+    { label:'الكمية المضخوخة المحسوبة', value:r=>r.qty.toFixed(1) }
+  ], 'الشهر', 'تقرير المضخات — الكمية المضخوخة');
+
+  const kmRows = gateVsFuelKmReport();
+  $('report-km-compare').innerHTML = kmRows.length===0 ? '<p class="empty">لا توجد بيانات كافية بعد.</p>' :
+    `<div class="table-wrap"><table><thead><tr>
+      <th>الآلية</th><th>آخر كم من سجل البوابة</th><th>آخر كم من سجل المازوت</th><th>الفرق</th>
+    </tr></thead><tbody>${kmRows.map(r=>`<tr class="${r.diff!==null && Math.abs(r.diff)>50 ? 'is-alert':''}">
+      <td class="veh-cell">${escapeHtml(r.vehicle)}</td><td>${r.gateLast??'—'}</td><td>${r.fuelLast??'—'}</td>
+      <td>${r.diff===null?'—':r.diff.toFixed(1)}</td></tr>`).join('')}</tbody></table></div>
+      ${pdfButton('مقارنة كيلومترات البوابة والمازوت', ['الآلية','آخر كم من سجل البوابة','آخر كم من سجل المازوت','الفرق'],
+        kmRows.map(r=>[r.vehicle, r.gateLast??'—', r.fuelLast??'—', r.diff===null?'—':r.diff.toFixed(1)]))}`;
+
   renderMonthlyReports(done);
 }
 
-// جدول شهري عام: يجمع صفوفًا حسب مفتاح مركّب (الشهر + اسم)، ثم يعرضها الأحدث أولًا.
-function monthlyTable(rows, keyLabel, cols){
+// جدول دوري عام: يجمع صفوفًا حسب مفتاح مركّب (الفترة + اسم)، ثم يعرضها
+// الأحدث أولًا. الفترة يوم أو شهر حسب اختيار المستخدم بضابط رقم التقارير.
+function monthlyTable(rows, keyLabel, cols, periodLabel, title){
   if(!rows.length) return '<p class="empty">لا توجد عمليات مكتملة كافية بعد.</p>';
   const sorted = [...rows].sort((a,b)=> b.month.localeCompare(a.month) || a.key.localeCompare(b.key,'ar'));
-  const head = `<th>الشهر</th><th>${keyLabel}</th>` + cols.map(c=>`<th>${c.label}</th>`).join('');
+  const head = `<th>${periodLabel||'الفترة'}</th><th>${keyLabel}</th>` + cols.map(c=>`<th>${c.label}</th>`).join('');
   const body = sorted.map(r=>`<tr><td>${r.month}</td><td>${escapeHtml(r.key)}</td>${
     cols.map(c=>`<td>${c.value(r)}</td>`).join('')
   }</tr>`).join('');
-  return `<div class="table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+  const pdfRows = sorted.map(r=> [r.month, r.key, ...cols.map(c=>String(c.value(r)))]);
+  return `<div class="table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
+    ${pdfButton(title || keyLabel, [periodLabel||'الفترة', keyLabel, ...cols.map(c=>c.label)], pdfRows)}`;
 }
 
-function groupMonthly(list, dateKeyOf, nameOf){
+function groupMonthly(list, dateKeyOf, nameOf, granularity){
   const g = {};
   list.forEach(item=>{
-    const month = (dateKeyOf(item)||'').slice(0,7);
+    const dateKey = dateKeyOf(item)||'';
+    const period = granularity === 'day' ? dateKey : dateKey.slice(0,7);
     const name = (nameOf(item)||'').trim();
-    if(!month || !name) return;
-    const key = month + '|' + name;
-    g[key] = g[key] || { month, key: name, trips:0, loadQty:0 };
+    if(!period || !name) return;
+    const key = period + '|' + name;
+    g[key] = g[key] || { month: period, key: name, trips:0, loadQty:0 };
     g[key].trips++;
     g[key].loadQty += Number(item.loadQty) || 0;
   });
@@ -1699,44 +2289,74 @@ function groupMonthly(list, dateKeyOf, nameOf){
 }
 
 function renderMonthlyReports(done){
+  const granularity = reportGranularity();
+  const periodLabel = granularity === 'day' ? 'اليوم' : 'الشهر';
   const qtyCols = [
     { label:'عدد الرحلات', value:r=>r.trips },
     { label:'إجمالي كمية الصب', value:r=>r.loadQty.toFixed(1) }
   ];
   $('report-monthly-customers').innerHTML =
-    monthlyTable(groupMonthly(done, e=>e.dateKey, e=>e.customer), 'الزبون', qtyCols);
+    monthlyTable(groupMonthly(done, e=>e.dateKey, e=>e.customer, granularity), 'الزبون', qtyCols, periodLabel, 'التقرير الدوري — الزبائن وكميات الصب');
   $('report-monthly-drivers').innerHTML =
-    monthlyTable(groupMonthly(done, e=>e.dateKey, e=>e.driver), 'السائق', qtyCols);
+    monthlyTable(groupMonthly(done, e=>e.dateKey, e=>e.driver, granularity), 'السائق', qtyCols, periodLabel, 'التقرير الدوري — السائقون');
   $('report-monthly-vehicles').innerHTML =
-    monthlyTable(groupMonthly(done, e=>e.dateKey, e=>e.vehicle), 'الآلية', qtyCols);
+    monthlyTable(groupMonthly(done, e=>e.dateKey, e=>e.vehicle, granularity), 'الآلية', qtyCols, periodLabel, 'التقرير الدوري — الآليات');
 
-  // استهلاك المازوت شهريًا لكل آلية، مقابل كيلومتراتها الفعلية من سجل الرحلات
+  // استهلاك المازوت دوريًا لكل آلية، مقابل كيلومتراتها الفعلية من سجل الرحلات
   // (المسافة _distance محسوبة أصلًا في enrichEntries لكل رحلة مكتملة).
-  const fuelByMonthVehicle = {};
-  fuelFills.forEach(f=>{
-    const month = (f.dateKey||'').slice(0,7);
+  const fuelFillsInRange = filterByDateRange(fuelFills, f=>f.dateKey);
+  const fuelByPeriodVehicle = {};
+  fuelFillsInRange.forEach(f=>{
+    const dateKey = f.dateKey||'';
+    const period = granularity === 'day' ? dateKey : dateKey.slice(0,7);
     const vehicle = (f.vehicle||'').trim();
-    if(!month || !vehicle) return;
-    const key = month + '|' + vehicle;
-    fuelByMonthVehicle[key] = fuelByMonthVehicle[key] || { month, key: vehicle, qty:0, km:0 };
-    fuelByMonthVehicle[key].qty += Number(f.qty) || 0;
+    if(!period || !vehicle) return;
+    const key = period + '|' + vehicle;
+    fuelByPeriodVehicle[key] = fuelByPeriodVehicle[key] || { month: period, key: vehicle, qty:0, km:0 };
+    fuelByPeriodVehicle[key].qty += Number(f.qty) || 0;
   });
   done.forEach(e=>{
-    const month = (e.dateKey||'').slice(0,7);
+    const dateKey = e.dateKey||'';
+    const period = granularity === 'day' ? dateKey : dateKey.slice(0,7);
     const vehicle = (e.vehicle||'').trim();
-    if(!month || !vehicle) return;
-    const key = month + '|' + vehicle;
-    if(!fuelByMonthVehicle[key]) return; // لا مازوت مسجّل لهذه الآلية هذا الشهر — لا صف لعرضه
-    fuelByMonthVehicle[key].km += e._distance || 0;
+    if(!period || !vehicle) return;
+    const key = period + '|' + vehicle;
+    if(!fuelByPeriodVehicle[key]) return; // لا مازوت مسجّل لهذه الآلية بهذه الفترة — لا صف لعرضه
+    fuelByPeriodVehicle[key].km += e._distance || 0;
   });
-  $('report-monthly-fuel').innerHTML = monthlyTable(Object.values(fuelByMonthVehicle), 'الآلية', [
+  $('report-monthly-fuel').innerHTML = monthlyTable(Object.values(fuelByPeriodVehicle), 'الآلية', [
     { label:'كمية المازوت المستهلكة', value:r=>r.qty.toFixed(1) },
     { label:'إجمالي الكيلومترات', value:r=>r.km.toFixed(1) },
     { label:'معدل الاستهلاك (لتر/١٠٠كم)', value:r=> r.km>0 ? (r.qty/r.km*100).toFixed(1) : '—' }
-  ]);
+  ], periodLabel, 'التقرير الدوري — استهلاك المازوت مقابل الكيلومتر');
 }
 
+// تعديل/حذف العمليات وتصدير السجل يبقيان لمدير الآليات؛ تسجيل الآليات
+// والسائقين والرصيد الابتدائي للمازوت صار حصرًا للأدمن (تبويب «الإعداد الأولي»).
 function canEditFleet(){ return currentRole === 'fleet_manager'; }
+function canManageFleetSetup(){ return currentRole === 'admin'; }
+
+function renderSetupTab(){
+  if(document.activeElement !== $('fb-qty') && document.activeElement !== $('fb-meter')){
+    const base = fuelBaseline[$('fb-tank').value];
+    $('fb-qty').value = base ? base.initialQty : '';
+    $('fb-meter').value = base ? base.initialMeter : '';
+  }
+}
+
+// تبويب الموارد البشرية: تقريران شهريان ثابتان (لا نطاق مخصّص ولا تجميع
+// يومي — الطلب الأصلي كان شهريًا فقط)، فوق نفس أدوات groupMonthly/pumpMonthlyReport.
+function renderHrTab(){
+  const done = entries.filter(e=>e.status==='done');
+  $('report-hr-drivers').innerHTML = monthlyTable(groupMonthly(done, e=>e.dateKey, e=>e.driver, 'month'), 'السائق', [
+    { label:'عدد الرحلات', value:r=>r.trips },
+    { label:'إجمالي كمية الصب', value:r=>r.loadQty.toFixed(1) }
+  ], 'الشهر', 'التقرير الشهري — السائقون وكميات الصب');
+  $('report-hr-pumps').innerHTML = monthlyTable(pumpMonthlyReport(done), 'المضخة', [
+    { label:'عدد الرحلات', value:r=>r.trips },
+    { label:'الكمية المضخوخة المحسوبة', value:r=>r.qty.toFixed(1) }
+  ], 'الشهر', 'التقرير الشهري — المضخات وكميات الصب');
+}
 
 function render(){
   enrichEntries();
@@ -1751,6 +2371,7 @@ function render(){
   if(currentRole === 'gate'){
     renderOutList();
     renderRecent();
+    renderGuestList();
     updateLoadQtyVisibility();
   }else if(currentRole === 'fleet_manager' || currentRole === 'admin'){
     renderVehiclesTab();
@@ -1761,7 +2382,8 @@ function render(){
   if(currentRole === 'fuel' || currentRole === 'fuel_warehouse_manager' || currentRole === 'admin'){
     renderFuelTab();
   }
-  if(currentRole === 'admin') renderUsers();
+  if(currentRole === 'admin'){ renderUsers(); renderSetupTab(); }
+  if(currentRole === 'hr'){ renderHrTab(); }
 }
 
 /* ===================================================================
@@ -1784,14 +2406,16 @@ const ROLE_LABELS = {
   fleet_manager: 'وضع مدير الآليات',
   fuel: 'وضع المازوت',
   fuel_warehouse_manager: 'وضع مدير مستودع المازوت',
-  admin: 'وضع الأدمن'
+  admin: 'وضع الأدمن',
+  hr: 'وضع الموارد البشرية'
 };
 const ROLE_DEFAULT_TAB = {
   gate: 'entry',
   fleet_manager: 'vehicles',
   fuel: 'fuel',
   fuel_warehouse_manager: 'fuel',
-  admin: 'users'
+  admin: 'users',
+  hr: 'hr'
 };
 
 function applyRoleUI(){
@@ -1814,11 +2438,18 @@ function vehicleTypeOf(name){
   return v ? v.type : null;
 }
 
-// كمية التحميل تخصّ الجبالات فقط — تظهر وتُطلب فقط عند اختيار آلية من هذا النوع.
+// حقول تخصّ نوع الآلية — تظهر وتُطلب فقط عند اختيار النوع المناسب:
+// كمية التحميل والصب اليدوي للجبالات، اسما الفني ومساعده للمضخات.
 function updateLoadQtyVisibility(){
-  const isGabbala = vehicleTypeOf($('f-vehicle').value) === 'gabbala';
+  const type = vehicleTypeOf($('f-vehicle').value);
+  const isGabbala = type === 'gabbala';
+  const isPump = type === 'pump';
   $('f-loadqty-field').hidden = !isGabbala;
-  if(!isGabbala) $('f-loadqty').value = '';
+  $('f-manualpour-field').hidden = !isGabbala;
+  $('f-technician-field').hidden = !isPump;
+  $('f-assistant-field').hidden = !isPump;
+  if(!isGabbala){ $('f-loadqty').value = ''; $('f-manualpour').checked = false; }
+  if(!isPump){ $('f-technician').value = ''; $('f-assistant').value = ''; }
 }
 
 async function submitDeparture(ev){
@@ -1827,7 +2458,9 @@ async function submitDeparture(ev){
   err.hidden = true;
   const btn = $('submit-btn');
 
-  const isGabbala = vehicleTypeOf($('f-vehicle').value) === 'gabbala';
+  const type = vehicleTypeOf($('f-vehicle').value);
+  const isGabbala = type === 'gabbala';
+  const isPump = type === 'pump';
   const payload = {
     vehicle:    $('f-vehicle').value.trim(),
     driver:     $('f-driver').value.trim(),
@@ -1835,6 +2468,9 @@ async function submitDeparture(ev){
     dateKey:    todayKey(),
     departTime: getTimeGroup('f-depart'),
     loadQty:    isGabbala ? parseFloat($('f-loadqty').value) : null,
+    manualPour: isGabbala ? $('f-manualpour').checked : false,
+    technicianName: isPump ? $('f-technician').value.trim() : null,
+    technicianAssistant: isPump ? $('f-assistant').value.trim() : null,
     notesOut:   $('f-notes-out').value.trim()
   };
   if(!payload.vehicle || !payload.driver || !payload.customer){
@@ -1844,6 +2480,11 @@ async function submitDeparture(ev){
   }
   if(isGabbala && (payload.loadQty === null || isNaN(payload.loadQty))){
     err.textContent = 'الرجاء إدخال كمية التحميل — إلزامية للجبالات.';
+    err.hidden = false;
+    return;
+  }
+  if(isPump && (!payload.technicianName || !payload.technicianAssistant)){
+    err.textContent = 'الرجاء إدخال اسم الفني ومساعده — إلزاميان للمضخات.';
     err.hidden = false;
     return;
   }
@@ -1963,6 +2604,9 @@ function openEditDialog(id){
   $('e-depart-wrap').innerHTML = timeGroupHTML('e-depart', e.departTime);
   $('e-notes-out').value = e.notesOut || '';
   $('e-loadqty').value = e.loadQty ?? '';
+  $('e-technician').value = e.technicianName || '';
+  $('e-assistant').value = e.technicianAssistant || '';
+  $('e-manualpour').checked = !!e.manualPour;
   updateEditLoadQtyVisibility();
   $('e-return-date').value = e.returnDate || (e.returnTime ? e.dateKey : '');
   $('e-return-wrap').innerHTML = timeGroupHTML('e-return', e.returnTime || nowTime());
@@ -1973,9 +2617,15 @@ function openEditDialog(id){
 }
 
 function updateEditLoadQtyVisibility(){
-  const isGabbala = vehicleTypeOf($('e-vehicle').value) === 'gabbala';
+  const type = vehicleTypeOf($('e-vehicle').value);
+  const isGabbala = type === 'gabbala';
+  const isPump = type === 'pump';
   $('e-loadqty-field').hidden = !isGabbala;
-  if(!isGabbala) $('e-loadqty').value = '';
+  $('e-manualpour-field').hidden = !isGabbala;
+  $('e-technician-field').hidden = !isPump;
+  $('e-assistant-field').hidden = !isPump;
+  if(!isGabbala){ $('e-loadqty').value = ''; $('e-manualpour').checked = false; }
+  if(!isPump){ $('e-technician').value = ''; $('e-assistant').value = ''; }
 }
 
 async function submitEdit(ev){
@@ -1983,10 +2633,19 @@ async function submitEdit(ev){
   const err = $('edit-error');
   err.hidden = true;
   const kmRaw = $('e-km').value.trim();
-  const isGabbala = vehicleTypeOf($('e-vehicle').value) === 'gabbala';
+  const type = vehicleTypeOf($('e-vehicle').value);
+  const isGabbala = type === 'gabbala';
+  const isPump = type === 'pump';
   const loadQtyRaw = $('e-loadqty').value.trim();
   if(isGabbala && loadQtyRaw === ''){
     err.textContent = 'الرجاء إدخال كمية التحميل — إلزامية للجبالات.';
+    err.hidden = false;
+    return;
+  }
+  const technicianName = $('e-technician').value.trim();
+  const technicianAssistant = $('e-assistant').value.trim();
+  if(isPump && (!technicianName || !technicianAssistant)){
+    err.textContent = 'الرجاء إدخال اسم الفني ومساعده — إلزاميان للمضخات.';
     err.hidden = false;
     return;
   }
@@ -1999,6 +2658,9 @@ async function submitEdit(ev){
     notesOut: $('e-notes-out').value.trim(),
     notesIn:  $('e-notes-in').value.trim(),
     loadQty: isGabbala ? Number(loadQtyRaw) : null,
+    manualPour: isGabbala ? $('e-manualpour').checked : false,
+    technicianName: isPump ? technicianName : null,
+    technicianAssistant: isPump ? technicianAssistant : null,
     km: kmRaw === '' ? null : Number(kmRaw),
     returnTime: kmRaw === '' ? null : getTimeGroup('e-return'),
     returnDate: kmRaw === '' ? null : ($('e-return-date').value || $('e-date').value)
@@ -2044,19 +2706,29 @@ async function submitVehicle(ev){
   const type = $('v-type').value;
   const fuelRaw = $('v-fuel').value.trim();
   const fuelTankQty = fuelRaw === '' ? null : parseFloat(fuelRaw);
+  const hoursRaw = $('v-hours').value.trim();
+  const workHoursBaseline = hoursRaw === '' ? null : parseFloat(hoursRaw);
   if(!name || isNaN(km)){
     err.textContent = 'الرجاء إدخال اسم الآلية وكيلومتراجها الحالي.';
     err.hidden = false;
     return;
   }
   const editId = $('v-edit-id').value;
+  const body = {name, baselineKm:km, type, fuelTankQty, workHoursBaseline};
   try{
-    if(editId) await api('PUT', `/api/vehicles/${editId}`, {name, baselineKm:km, type, fuelTankQty});
-    else       await api('POST', '/api/vehicles', {name, baselineKm:km, type, fuelTankQty});
+    if(editId) await api('PUT', `/api/vehicles/${editId}`, body);
+    else       await api('POST', '/api/vehicles', body);
     resetVehicleForm();
     await refresh(); render();
     toast(editId ? 'حُفظت التعديلات' : `أُضيفت الآلية ${name}`, 'ok');
   }catch(e){
+    if(e.offline){
+      queueOperation(editId ? { kind:'edit_vehicle', entityId:editId, body } : { kind:'add_vehicle', body });
+      resetVehicleForm();
+      render();
+      toast(`حُفظت ${editId?'تعديلات':'إضافة'} الآلية ${name} محليًا — ستُرسل عند عودة الاتصال`, 'ok');
+      return;
+    }
     err.textContent = e.message;
     err.hidden = false;
   }
@@ -2070,6 +2742,7 @@ function startEditVehicle(id){
   $('v-km').value = v.baselineKm;
   $('v-type').value = v.type || 'service';
   $('v-fuel').value = v.fuelTankQty ?? '';
+  $('v-hours').value = v.workHoursBaseline ?? '';
   $('vehicle-form-title').textContent = 'تعديل بيانات آلية';
   $('v-submit-btn').textContent = 'حفظ التعديلات';
   $('v-cancel-edit').hidden = false;
@@ -2209,7 +2882,8 @@ async function loadAudit(){
       delete_entry:'حذف عملية', add_vehicle:'إضافة آلية', edit_vehicle:'تعديل آلية',
       delete_vehicle:'حذف آلية', add_driver:'إضافة سائق', edit_driver:'تعديل سائق',
       delete_driver:'حذف سائق', fuel_fill:'تعبئة آلية', fuel_supply:'تعبئة خزان',
-      fuel_baseline:'ضبط الرصيد الابتدائي للمازوت', change_password:'تغيير كلمة مرور',
+      fuel_baseline:'ضبط الرصيد الابتدائي للمازوت', guest_in:'تسجيل دخول ضيف', guest_out:'تسجيل خروج ضيف',
+      change_password:'تغيير كلمة مرور',
       add_user:'إضافة مستخدم', edit_user:'تعديل مستخدم',
       activate_user:'تفعيل مستخدم', deactivate_user:'تعطيل مستخدم',
       export_csv:'تصدير السجل', backup:'نسخة احتياطية'
@@ -2323,6 +2997,11 @@ function bindEvents(){
       if(openReturnId) confirmReturn(openReturnId);
     }
   });
+  $('guest-form').addEventListener('submit', submitGuestIn);
+  $('guest-list').addEventListener('click', ev=>{
+    const btn = ev.target.closest('button'); if(!btn || !btn.dataset.guestExit) return;
+    exitGuest(btn.dataset.guestExit);
+  });
 
   // المدير — السجل
   $('log-search').addEventListener('input', ev=>{ logSearch = ev.target.value; render(); });
@@ -2359,12 +3038,18 @@ function bindEvents(){
 
   // المازوت
   $('fuel-baseline-form').addEventListener('submit', submitFuelBaseline);
+  $('fb-tank').addEventListener('change', renderSetupTab);
   $('fuel-fill-form').addEventListener('submit', submitFuelFill);
   $('fuel-supply-form').addEventListener('submit', submitFuelSupply);
 
   // المدير — التقارير
   $('pct-threshold').addEventListener('input', render);
   $('pct-threshold-dist').addEventListener('input', render);
+  $('rep-from').addEventListener('change', render);
+  $('rep-to').addEventListener('change', render);
+  $('rep-granularity').addEventListener('change', render);
+  $('report-vehicles-search').addEventListener('input', render);
+  $('report-drivers-search').addEventListener('input', render);
 
   // الأدمن — المستخدمون
   $('user-form').addEventListener('submit', submitUser);

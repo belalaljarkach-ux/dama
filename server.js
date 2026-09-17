@@ -20,6 +20,7 @@ const fs   = require('node:fs');
 const path   = require('node:path');
 const config = require('./config');
 const db     = require('./db');
+const { buildReportPdf } = require('./pdf-export');
 
 const ROOT     = __dirname;
 const PUBLIC   = path.join(ROOT, 'public');
@@ -99,8 +100,9 @@ function parseCookies(req) {
 const RE_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const RE_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 
-const ROLES = ['gate', 'fleet_manager', 'fuel', 'admin', 'fuel_warehouse_manager'];
+const ROLES = ['gate', 'fleet_manager', 'fuel', 'admin', 'fuel_warehouse_manager', 'hr'];
 const VEHICLE_TYPES = ['gabbala', 'pump', 'service', 'silo'];
+const TANKS = ['tank1', 'tank2', 'tank3'];
 
 function str(v, max) {
   return String(v === undefined || v === null ? '' : v).trim().slice(0, max || 120);
@@ -132,6 +134,12 @@ function requireKm(v, label) {
   const n = Number(v);
   if (!isFinite(n) || n < 0 || n > 10000000) throw badRequest(`قيمة «${label}» غير منطقية.`);
   return n;
+}
+
+function requireTank(v) {
+  const s = str(v, 16);
+  if (!TANKS.includes(s)) throw badRequest('الخزان غير معروف.');
+  return s;
 }
 
 function requireVehicleType(v) {
@@ -257,7 +265,8 @@ async function route(req, res, url) {
       drivers: await db.listDrivers(),
       fuelFills: await db.listFuelFills(days),
       fuelSupply: await db.listFuelSupply(days),
-      fuelBaseline: await db.getFuelBaseline(),
+      fuelBaseline: Object.fromEntries(await Promise.all(TANKS.map(async t => [t, await db.getFuelBaseline(t)]))),
+      guestVisits: await db.listGuestVisits(days),
       windowDays: days,
       serverTime: new Date().toISOString()
     });
@@ -287,12 +296,19 @@ async function route(req, res, url) {
     // الآلية يجب أن تكون مسجّلة، وإلا استحال حساب المسافة من أول رحلة.
     const vehicleRow = await db.getVehicleByName(vehicle);
     if (!vehicleRow) {
-      return fail(res, 400, `الآلية «${vehicle}» غير مسجّلة. يسجّلها المدير من تبويب «الآليات» أولًا.`);
+      return fail(res, 400, `الآلية «${vehicle}» غير مسجّلة. يسجّلها الأدمن من تبويب «الإعداد الأولي» أولًا.`);
     }
     // كمية التحميل تخصّ الجبالات فقط — مطلوبة لها، ومُهملة لأي نوع آخر.
     const loadQty = vehicleRow.type === 'gabbala'
       ? requireKm(b.loadQty, 'كمية التحميل')
       : null;
+    // اسم الفني ومساعده يخصّان المضخات فقط.
+    const technicianName = vehicleRow.type === 'pump'
+      ? requireText(b.technicianName, 'اسم الفني') : null;
+    const technicianAssistant = vehicleRow.type === 'pump'
+      ? requireText(b.technicianAssistant, 'اسم مساعد الفني') : null;
+    // "الصب يدوي" خانة اختيارية تخصّ الجبالات فقط.
+    const manualPour = vehicleRow.type === 'gabbala' ? !!b.manualPour : false;
     // لا يمكن خروج آلية هي أصلًا في الخارج — يمنع الصفوف المكرّرة عند
     // استخدام أكثر من جهاز على البوابة.
     const already = await db.vehicleIsOut(vehicle);
@@ -311,6 +327,7 @@ async function route(req, res, url) {
     try {
       entry = await db.insertEntry({
         vehicle, driver, customer, dateKey, departTime, loadQty,
+        technicianName, technicianAssistant, manualPour,
         notesOut: str(b.notesOut, 300), clientRef
       });
     } catch (err) {
@@ -376,6 +393,33 @@ async function route(req, res, url) {
     return json(res, 200, { entry: result.entry });
   }
 
+  /* ---- آليات الضيوف: البوابة فقط ---- */
+
+  if (p === '/api/guests' && m === 'POST') {
+    const actor = await requireRole(req, res, 'gate'); if (!actor) return;
+    const b = await readJson(req);
+    const vehicleDesc = requireText(b.vehicleDesc, 'وصف المركبة');
+    const purpose = requireText(b.purpose, 'جهة الزيارة');
+    const dateIn = requireDate(b.dateIn || new Date().toISOString().slice(0, 10), 'التاريخ');
+    const timeIn = requireTime(b.timeIn, 'وقت الدخول');
+    const visit = await db.insertGuestVisit({ vehicleDesc, purpose, dateIn, timeIn, createdBy: actor.username });
+    await db.audit(actor, clientIp(req), 'guest_in', visit.id, { vehicleDesc, purpose });
+    return json(res, 201, { visit });
+  }
+
+  const mGuest = p.match(/^\/api\/guests\/([\w-]+)\/exit$/);
+  if (mGuest && m === 'POST') {
+    const actor = await requireRole(req, res, 'gate'); if (!actor) return;
+    const b = await readJson(req);
+    const dateOut = requireDate(b.dateOut || new Date().toISOString().slice(0, 10), 'تاريخ الخروج');
+    const timeOut = requireTime(b.timeOut, 'وقت الخروج');
+    const result = await db.closeGuestVisit(mGuest[1], { dateOut, timeOut });
+    if (result.error === 'notfound') return fail(res, 404, 'الزيارة غير موجودة.');
+    if (result.error === 'already') return fail(res, 409, 'سُجّل خروج هذه الزيارة من جهاز آخر قبل قليل.');
+    await db.audit(actor, clientIp(req), 'guest_out', mGuest[1], null);
+    return json(res, 200, { visit: result.visit });
+  }
+
   /* ---- تعديل وحذف العمليات: المدير فقط ---- */
 
   const mEntry = p.match(/^\/api\/entries\/([\w-]+)$/);
@@ -396,6 +440,9 @@ async function route(req, res, url) {
       notesOut: str(b.notesOut, 300),
       notesIn:  str(b.notesIn, 300),
       loadQty: editVehicleRow && editVehicleRow.type === 'gabbala' ? requireKm(b.loadQty, 'كمية التحميل') : null,
+      technicianName: editVehicleRow && editVehicleRow.type === 'pump' ? requireText(b.technicianName, 'اسم الفني') : null,
+      technicianAssistant: editVehicleRow && editVehicleRow.type === 'pump' ? requireText(b.technicianAssistant, 'اسم مساعد الفني') : null,
+      manualPour: editVehicleRow && editVehicleRow.type === 'gabbala' ? !!b.manualPour : false,
       returnDate: null, returnTime: null, km: null
     };
     const hasReturn = b.returnTime && b.km !== null && b.km !== undefined && b.km !== '';
@@ -419,39 +466,59 @@ async function route(req, res, url) {
     return json(res, 200, { ok: true });
   }
 
-  /* ---- الآليات: مدير الآليات فقط ---- */
+  /* ---- الآليات: الأدمن فقط (تسجيل لمرة واحدة عند الإعداد) ---- */
 
   if (p === '/api/vehicles' && m === 'POST') {
-    const actor = await requireRole(req, res, 'fleet_manager'); if (!actor) return;
+    const actor = await requireRole(req, res, 'admin'); if (!actor) return;
     const b = await readJson(req);
+
+    // إعادة إرسال بعد انقطاع الشبكة: نفس مبدأ /api/entries تمامًا.
+    const clientRef = str(b.clientRef, 64) || null;
+    if (clientRef) {
+      const prior = await db.getVehicleByClientRef(clientRef);
+      if (prior) return json(res, 200, { vehicle: prior, deduplicated: true });
+    }
+
     const name = requireText(b.name, 'اسم الآلية');
     const km   = requireKm(b.baselineKm, 'الكيلومتراج الحالي');
     const type = requireVehicleType(b.type);
     const fuelTankQty = optionalNumber(b.fuelTankQty, 'كمية المازوت بالخزان');
+    const workHoursBaseline = optionalNumber(b.workHoursBaseline, 'عدّاد ساعات العمل الأساس');
     if (await db.getVehicleByName(name)) return fail(res, 409, 'هذه الآلية مسجّلة مسبقًا.');
-    const v = await db.insertVehicle(name, km, type, fuelTankQty);
+    let v;
+    try {
+      v = await db.insertVehicle(name, km, type, fuelTankQty, workHoursBaseline, clientRef);
+    } catch (err) {
+      if (clientRef && err.duplicateClientRef) {
+        const prior = await db.getVehicleByClientRef(clientRef);
+        if (prior) return json(res, 200, { vehicle: prior, deduplicated: true });
+      }
+      if (err.duplicateName) return fail(res, 409, 'هذه الآلية مسجّلة مسبقًا.');
+      throw err;
+    }
     await db.audit(actor, clientIp(req), 'add_vehicle', v.id, { name, baselineKm: km, type });
     return json(res, 201, { vehicle: v });
   }
 
   const mVehicle = p.match(/^\/api\/vehicles\/([\w-]+)$/);
   if (mVehicle && m === 'PUT') {
-    const actor = await requireRole(req, res, 'fleet_manager'); if (!actor) return;
+    const actor = await requireRole(req, res, 'admin'); if (!actor) return;
     const b = await readJson(req);
     const name = requireText(b.name, 'اسم الآلية');
     const km   = requireKm(b.baselineKm, 'الكيلومتراج الحالي');
     const type = requireVehicleType(b.type);
     const fuelTankQty = optionalNumber(b.fuelTankQty, 'كمية المازوت بالخزان');
+    const workHoursBaseline = optionalNumber(b.workHoursBaseline, 'عدّاد ساعات العمل الأساس');
     const clash = await db.getVehicleByName(name);
     if (clash && clash.id !== mVehicle[1]) return fail(res, 409, 'يوجد آلية أخرى بنفس الاسم.');
-    const v = await db.updateVehicle(mVehicle[1], name, km, type, fuelTankQty);
+    const v = await db.updateVehicle(mVehicle[1], name, km, type, fuelTankQty, workHoursBaseline);
     if (!v) return fail(res, 404, 'الآلية غير موجودة.');
     await db.audit(actor, clientIp(req), 'edit_vehicle', v.id, { name, baselineKm: km, type });
     return json(res, 200, { vehicle: v });
   }
 
   if (mVehicle && m === 'DELETE') {
-    const actor = await requireRole(req, res, 'fleet_manager'); if (!actor) return;
+    const actor = await requireRole(req, res, 'admin'); if (!actor) return;
     const v = await db.getVehicle(mVehicle[1]);
     if (!v) return fail(res, 404, 'الآلية غير موجودة.');
     const out = await db.vehicleIsOut(v.name);
@@ -465,7 +532,7 @@ async function route(req, res, url) {
     return json(res, 200, { ok: true });
   }
 
-  /* ---- السائقون: مدير الآليات فقط ---- */
+  /* ---- السائقون: الأدمن فقط (تسجيل لمرة واحدة عند الإعداد) ---- */
 
   function parseAllowedTypes(v) {
     const arr = Array.isArray(v) ? v : [];
@@ -475,14 +542,25 @@ async function route(req, res, url) {
   }
 
   if (p === '/api/drivers' && m === 'POST') {
-    const actor = await requireRole(req, res, 'fleet_manager'); if (!actor) return;
+    const actor = await requireRole(req, res, 'admin'); if (!actor) return;
     const b = await readJson(req);
+
+    const clientRef = str(b.clientRef, 64) || null;
+    if (clientRef) {
+      const prior = await db.getDriverByClientRef(clientRef);
+      if (prior) return json(res, 200, { driver: prior, deduplicated: true });
+    }
+
     const name = requireText(b.name, 'اسم السائق');
     const allowedTypes = parseAllowedTypes(b.allowedTypes);
     if (await db.getDriverByName(name)) return fail(res, 409, 'هذا السائق مسجّل مسبقًا.');
     let driver;
-    try { driver = await db.insertDriver({ name, allowedTypes }); }
+    try { driver = await db.insertDriver({ name, allowedTypes, clientRef }); }
     catch (err) {
+      if (clientRef && err.duplicateClientRef) {
+        const prior = await db.getDriverByClientRef(clientRef);
+        if (prior) return json(res, 200, { driver: prior, deduplicated: true });
+      }
       if (err.duplicateDriverName) return fail(res, 409, 'هذا السائق مسجّل مسبقًا.');
       throw err;
     }
@@ -492,7 +570,7 @@ async function route(req, res, url) {
 
   const mDriver = p.match(/^\/api\/drivers\/([\w-]+)$/);
   if (mDriver && m === 'PUT') {
-    const actor = await requireRole(req, res, 'fleet_manager'); if (!actor) return;
+    const actor = await requireRole(req, res, 'admin'); if (!actor) return;
     const b = await readJson(req);
     const name = requireText(b.name, 'اسم السائق');
     const allowedTypes = parseAllowedTypes(b.allowedTypes);
@@ -508,7 +586,7 @@ async function route(req, res, url) {
   }
 
   if (mDriver && m === 'DELETE') {
-    const actor = await requireRole(req, res, 'fleet_manager'); if (!actor) return;
+    const actor = await requireRole(req, res, 'admin'); if (!actor) return;
     await db.deleteDriver(mDriver[1]);
     await db.audit(actor, clientIp(req), 'delete_driver', mDriver[1], null);
     return json(res, 200, { ok: true });
@@ -519,13 +597,49 @@ async function route(req, res, url) {
   if (p === '/api/fuel/fills' && m === 'POST') {
     const actor = await requireRole(req, res, 'fuel'); if (!actor) return;
     const b = await readJson(req);
+
+    const clientRef = str(b.clientRef, 64) || null;
+    if (clientRef) {
+      const prior = await db.getFuelFillByClientRef(clientRef);
+      if (prior) return json(res, 200, { fill: prior, deduplicated: true });
+    }
+
     const vehicle = requireText(b.vehicle, 'الآلية');
     const km = requireKm(b.km, 'الكيلومتراج الحالي');
     const qty = requireKm(b.qty, 'كمية التعبئة');
-    const workHours = optionalNumber(b.workHours, 'ساعات العمل');
+    const tank = requireTank(b.tank);
+    const workHours = optionalNumber(b.workHours, 'قراءة عدّاد ساعات العمل');
+    const dispenserMeter = optionalNumber(b.dispenserMeter, 'قراءة عدّاد الكازية');
     const dateKey = requireDate(b.dateKey || new Date().toISOString().slice(0, 10), 'التاريخ');
     const time = requireTime(b.time, 'الوقت');
-    const fill = await db.insertFuelFill({ vehicle, km, qty, workHours, dateKey, time, createdBy: actor.username });
+
+    // عدّاد ساعات العمل لا ينقص لنفس الآلية — نفس قاعدة عدّاد الخزان، لكن لكل
+    // آلية على حدة، والافتراض الأول هو work_hours_baseline المسجَّل بالإعداد.
+    if (workHours !== null) {
+      const lastWH = await db.lastWorkHoursForVehicle(vehicle);
+      if (lastWH !== null && workHours < lastWH && !b.force) {
+        return fail(res, 409, `قراءة عدّاد ساعات العمل (${workHours}) أقل من آخر قراءة مسجّلة لهذه الآلية (${lastWH}). تأكّد من الرقم.`);
+      }
+    }
+    // عدّاد الكازية التراكمي لا ينقص هو الآخر، لكن على مستوى المحطة كلها لا
+    // لكل آلية — يُستخدَم لاحقًا فقط لمقارنة/تصالح مسؤول المازوت.
+    if (dispenserMeter !== null) {
+      const lastDM = await db.lastDispenserMeterReading();
+      if (lastDM !== null && dispenserMeter < lastDM && !b.force) {
+        return fail(res, 409, `قراءة عدّاد الكازية (${dispenserMeter}) أقل من آخر قراءة مسجّلة (${lastDM}). تأكّد من الرقم.`);
+      }
+    }
+
+    let fill;
+    try {
+      fill = await db.insertFuelFill({ vehicle, km, qty, tank, workHours, dispenserMeter, dateKey, time, createdBy: actor.username, clientRef });
+    } catch (err) {
+      if (clientRef && err.duplicateClientRef) {
+        const prior = await db.getFuelFillByClientRef(clientRef);
+        if (prior) return json(res, 200, { fill: prior, deduplicated: true });
+      }
+      throw err;
+    }
     await db.audit(actor, clientIp(req), 'fuel_fill', fill.id, { vehicle, qty });
     return json(res, 201, { fill });
   }
@@ -533,29 +647,47 @@ async function route(req, res, url) {
   if (p === '/api/fuel/supply' && m === 'POST') {
     const actor = await requireRole(req, res, 'fuel'); if (!actor) return;
     const b = await readJson(req);
+
+    const clientRef = str(b.clientRef, 64) || null;
+    if (clientRef) {
+      const prior = await db.getFuelSupplyByClientRef(clientRef);
+      if (prior) return json(res, 200, { supply: prior, deduplicated: true });
+    }
+
     const meterReading = requireKm(b.meterReading, 'قراءة العدّاد');
+    const tank = requireTank(b.tank);
     const dateKey = requireDate(b.dateKey || new Date().toISOString().slice(0, 10), 'التاريخ');
     const time = requireTime(b.time, 'الوقت');
 
-    // العدّاد لا ينقص — نفس قاعدة كيلومتراج الآليات حرفيًا.
-    const last = await db.lastFuelMeterReading();
+    // العدّاد لا ينقص — نفس قاعدة كيلومتراج الآليات حرفيًا، لكن لكل خزان.
+    const last = await db.lastFuelMeterReading(tank);
     if (last !== null && meterReading < last && !b.force) {
       return fail(res, 409, `قراءة العدّاد (${meterReading}) أقل من آخر قراءة مسجّلة (${last}). تأكّد من الرقم.`);
     }
 
-    const supply = await db.insertFuelSupply({ meterReading, dateKey, time, createdBy: actor.username });
+    let supply;
+    try {
+      supply = await db.insertFuelSupply({ meterReading, tank, dateKey, time, createdBy: actor.username, clientRef });
+    } catch (err) {
+      if (clientRef && err.duplicateClientRef) {
+        const prior = await db.getFuelSupplyByClientRef(clientRef);
+        if (prior) return json(res, 200, { supply: prior, deduplicated: true });
+      }
+      throw err;
+    }
     await db.audit(actor, clientIp(req), 'fuel_supply', supply.id, { meterReading });
     return json(res, 201, { supply });
   }
 
   if (p === '/api/fuel/baseline' && m === 'POST') {
-    const actor = await requireRole(req, res, 'fuel'); if (!actor) return;
+    const actor = await requireRole(req, res, 'admin'); if (!actor) return;
     const b = await readJson(req);
+    const tank = requireTank(b.tank);
     const initialQty = requireKm(b.initialQty, 'الكمية الابتدائية');
     const initialMeter = requireKm(b.initialMeter, 'قراءة العدّاد الابتدائية');
-    const baseline = await db.setFuelBaseline(initialQty, initialMeter);
-    await db.audit(actor, clientIp(req), 'fuel_baseline', null, { initialQty, initialMeter });
-    return json(res, 200, { baseline });
+    const baseline = await db.setFuelBaseline(tank, initialQty, initialMeter);
+    await db.audit(actor, clientIp(req), 'fuel_baseline', null, { tank, initialQty, initialMeter });
+    return json(res, 200, { tank, baseline });
   }
 
   /* ---- المستخدمون وكلمات المرور: الأدمن فقط ---- */
@@ -625,6 +757,28 @@ async function route(req, res, url) {
     return send(res, 200, entriesCsv(rows), {
       'Content-Type': 'text/csv; charset=utf-8',
       'Content-Disposition': 'attachment; filename="gate-log-entries.csv"'
+    });
+  }
+
+  // تصدير PDF عام: أي حساب مسجَّل يصدّر تقريرًا حسب بياناته هو نفسه — البيانات
+  // (عنوان/أعمدة/صفوف) جاهزة أصلًا من جافاسكربت العميل بنفس منطق الجدول
+  // المعروض، فلا تكرار لحساب التقارير هنا، فقط توليد الملف.
+  if (p === '/api/export/pdf' && m === 'POST') {
+    const actor = await requireRole(req, res); if (!actor) return;
+    const b = await readJson(req);
+    const title = requireText(b.title, 'عنوان التقرير', 200);
+    const columns = Array.isArray(b.columns) ? b.columns.map(c => str(c, 80)) : [];
+    const rows = Array.isArray(b.rows) ? b.rows.slice(0, 5000).map(r => Array.isArray(r) ? r.slice(0, columns.length) : []) : [];
+    if (!columns.length) return fail(res, 400, 'لا توجد أعمدة لهذا التقرير.');
+
+    let buffer;
+    try { buffer = await buildReportPdf(title, columns, rows); }
+    catch (err) { return fail(res, 500, 'تعذّر توليد ملف PDF.'); }
+
+    await db.audit(actor, clientIp(req), 'export_pdf', null, { title, rows: rows.length });
+    return send(res, 200, buffer, {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': 'attachment; filename="report.pdf"'
     });
   }
 

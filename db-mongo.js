@@ -167,7 +167,8 @@ async function init(options) {
     users:    db.collection('users'),
     drivers:  db.collection('drivers'),
     fuelFills:  db.collection('fuel_fills'),
-    fuelSupply: db.collection('fuel_supply')
+    fuelSupply: db.collection('fuel_supply'),
+    guestVisits: db.collection('guest_visits')
   };
 
   // الفهارس. `unique` على اسم الآلية يجعل منع التكرار قاعدة في قاعدة البيانات
@@ -204,6 +205,28 @@ async function init(options) {
   await col.fuelFills.createIndex({ dateKey: -1 });
   await col.fuelFills.createIndex({ vehicle: 1 });
   await col.fuelSupply.createIndex({ dateKey: -1 });
+
+  // سجلّ آليات ضيوف: فهرس الحالة فقط، كما في db-sqlite.js (لا قيد تفرّد هنا).
+  await col.guestVisits.createIndex({ status: 1 });
+
+  // مفاتيح تعريف لكل نماذج الإدخال — تسمح بإعادة الإرسال الآمنة بعد انقطاع
+  // الشبكة (نفس مبدأ client_ref في entries) لشاشات الآليات والسائقين والمازوت.
+  await col.vehicles.createIndex(
+    { clientRef: 1 },
+    { unique: true, partialFilterExpression: { clientRef: { $type: 'string' } }, name: 'unique_client_ref' }
+  );
+  await col.drivers.createIndex(
+    { clientRef: 1 },
+    { unique: true, partialFilterExpression: { clientRef: { $type: 'string' } }, name: 'unique_client_ref' }
+  );
+  await col.fuelFills.createIndex(
+    { clientRef: 1 },
+    { unique: true, partialFilterExpression: { clientRef: { $type: 'string' } }, name: 'unique_client_ref' }
+  );
+  await col.fuelSupply.createIndex(
+    { clientRef: 1 },
+    { unique: true, partialFilterExpression: { clientRef: { $type: 'string' } }, name: 'unique_client_ref' }
+  );
 
   const initialPasswords = await seedUsers(opts.adminPassword);
   const safeUri = uri.replace(/\/\/([^:]+):([^@]+)@/, '//$1:****@');
@@ -251,7 +274,8 @@ const DEFAULT_ROLE_USERS = [
   { username: 'بوابة',                    role: 'gate',                   fullName: 'حساب البوابة' },
   { username: 'مدير_الاليات',              role: 'fleet_manager',          fullName: 'مدير الآليات' },
   { username: 'المازوت',                   role: 'fuel',                   fullName: 'حساب المازوت' },
-  { username: 'مدير_مستودع_المازوت',        role: 'fuel_warehouse_manager', fullName: 'مدير مستودع المازوت' }
+  { username: 'مدير_مستودع_المازوت',        role: 'fuel_warehouse_manager', fullName: 'مدير مستودع المازوت' },
+  { username: 'مسؤول_الموارد_البشرية',      role: 'hr',                     fullName: 'مسؤول الموارد البشرية' }
 ];
 
 /**
@@ -491,6 +515,11 @@ async function getVehicleByName(name) {
   return stripId(await col.vehicles.findOne({ name: String(name).trim() }));
 }
 
+async function getVehicleByClientRef(ref) {
+  if (!ref) return null;
+  return stripId(await col.vehicles.findOne({ clientRef: String(ref) }));
+}
+
 async function lastKmForVehicle(name) {
   const v = String(name).trim();
   const row = await col.entries
@@ -527,6 +556,9 @@ async function insertEntry(data) {
     notesOut: data.notesOut || '',
     returnDate: null, returnTime: null, km: null,
     loadQty: data.loadQty === undefined || data.loadQty === null ? null : Number(data.loadQty),
+    technicianName: data.technicianName || null,
+    technicianAssistant: data.technicianAssistant || null,
+    manualPour: !!data.manualPour,
     notesIn: '',
     status: 'out', createdAt: now, updatedAt: now,
     returnClientRef: null
@@ -587,6 +619,9 @@ async function updateEntry(id, data) {
         customer: data.customer, departTime: data.departTime,
         notesOut: data.notesOut || '',
         loadQty: data.loadQty === undefined || data.loadQty === null || data.loadQty === '' ? null : Number(data.loadQty),
+        technicianName: data.technicianName || null,
+        technicianAssistant: data.technicianAssistant || null,
+        manualPour: !!data.manualPour,
         returnDate: done ? (data.returnDate || data.dateKey) : null,
         returnTime: done ? data.returnTime : null,
         km:         done ? Number(data.km) : null,
@@ -604,7 +639,7 @@ async function deleteEntry(id) {
   return res.deletedCount > 0;
 }
 
-async function insertVehicle(name, baselineKm, type, fuelTankQty) {
+async function insertVehicle(name, baselineKm, type, fuelTankQty, workHoursBaseline, clientRef) {
   const id = newId('v');
   const doc = {
     _id: id, id,
@@ -612,9 +647,28 @@ async function insertVehicle(name, baselineKm, type, fuelTankQty) {
     baselineKm: Number(baselineKm),
     type: type || null,
     fuelTankQty: fuelTankQty === undefined || fuelTankQty === null || fuelTankQty === '' ? null : Number(fuelTankQty),
+    workHoursBaseline: workHoursBaseline === undefined || workHoursBaseline === null || workHoursBaseline === '' ? null : Number(workHoursBaseline),
     registeredAt: new Date().toISOString()
   };
-  await col.vehicles.insertOne(doc);
+  if (clientRef) doc.clientRef = String(clientRef);
+  try {
+    await col.vehicles.insertOne(doc);
+  } catch (err) {
+    if (err.code === 11000) {
+      // خرق مفتاح التعريف يعني إعادة إرسال لطلب نجح أصلًا — لا خطأ.
+      if (/clientRef|unique_client_ref/.test(String(err.message))) {
+        const e = new Error('طلب مُعاد.');
+        e.duplicateClientRef = true;
+        throw e;
+      }
+      // تحسّبًا فقط: server.js يتحقّق من الاسم مسبقًا ويُرجع 409 بنفسه (انظر
+      // مسار POST /api/vehicles)، لكن نُعلِّم الخطأ هنا أيضًا دفاعًا عن النفس.
+      const e = new Error('هذه الآلية مسجّلة مسبقًا.');
+      e.duplicateName = true;
+      throw e;
+    }
+    throw err;
+  }
   return stripId(doc);
 }
 
@@ -627,7 +681,7 @@ async function insertVehicle(name, baselineKm, type, fuelTankQty) {
  * العمليتان تباعًا؛ الخطر عمليًّا معدوم لأن إعادة تسمية آلية إجراء نادر
  * يقوم به المدير وحده.
  */
-async function updateVehicle(id, name, baselineKm, type, fuelTankQty) {
+async function updateVehicle(id, name, baselineKm, type, fuelTankQty, workHoursBaseline) {
   const old = await col.vehicles.findOne({ _id: String(id) });
   if (!old) return null;
   const newName = String(name).trim();
@@ -639,7 +693,8 @@ async function updateVehicle(id, name, baselineKm, type, fuelTankQty) {
       { $set: {
           name: newName, baselineKm: Number(baselineKm),
           type: type || null,
-          fuelTankQty: fuelTankQty === undefined || fuelTankQty === null || fuelTankQty === '' ? null : Number(fuelTankQty)
+          fuelTankQty: fuelTankQty === undefined || fuelTankQty === null || fuelTankQty === '' ? null : Number(fuelTankQty),
+          workHoursBaseline: workHoursBaseline === undefined || workHoursBaseline === null || workHoursBaseline === '' ? null : Number(workHoursBaseline)
       } }, opts);
     if (old.name !== newName) {
       await col.entries.updateMany({ vehicle: old.name },
@@ -676,6 +731,11 @@ async function getDriverByName(name) {
   return stripId(await col.drivers.findOne({ name: String(name).trim() }));
 }
 
+async function getDriverByClientRef(ref) {
+  if (!ref) return null;
+  return stripId(await col.drivers.findOne({ clientRef: String(ref) }));
+}
+
 async function insertDriver(data) {
   const id = newId('d');
   const doc = {
@@ -684,10 +744,17 @@ async function insertDriver(data) {
     allowedTypes: data.allowedTypes || [],
     createdAt: new Date().toISOString()
   };
+  if (data.clientRef) doc.clientRef = String(data.clientRef);
   try {
     await col.drivers.insertOne(doc);
   } catch (err) {
     if (err.code === 11000) {
+      // خرق مفتاح التعريف يعني إعادة إرسال لطلب نجح أصلًا — لا خطأ.
+      if (/clientRef|unique_client_ref/.test(String(err.message))) {
+        const e = new Error('طلب مُعاد.');
+        e.duplicateClientRef = true;
+        throw e;
+      }
       const e = new Error('هذا السائق مسجّل مسبقًا.');
       e.duplicateDriverName = true;
       throw e;
@@ -726,15 +793,38 @@ async function deleteDriver(id) {
 
 /* ---------------------------------------------------------- وحدة المازوت */
 
+// حقلا tank و dispenserMeter أُضيفا لاحقًا (3 خزانات ثابتة + عدّاد كازية عام)؛
+// المستندات القديمة لا تحملهما، فنطبّق نفس الافتراض الذي يطبّقه fuelFillOut
+// في db-sqlite.js عند كل قراءة بدل ترحيل كل مستند قديم.
+function fuelFillOut(doc) {
+  if (!doc) return null;
+  const out = stripId(doc);
+  out.tank = out.tank || 'tank1';
+  out.dispenserMeter = out.dispenserMeter === null || out.dispenserMeter === undefined ? null : Number(out.dispenserMeter);
+  return out;
+}
+
+function fuelSupplyOut(doc) {
+  if (!doc) return null;
+  const out = stripId(doc);
+  out.tank = out.tank || 'tank1';
+  return out;
+}
+
 async function listFuelFills(days) {
   const n = Number(days);
   const sort = { dateKey: -1, time: -1 };
   if (!n || n <= 0) {
-    return (await col.fuelFills.find({}).sort(sort).toArray()).map(stripId);
+    return (await col.fuelFills.find({}).sort(sort).toArray()).map(fuelFillOut);
   }
   const from = new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
   const rows = await col.fuelFills.find({ dateKey: { $gte: from } }).sort(sort).toArray();
-  return rows.map(stripId);
+  return rows.map(fuelFillOut);
+}
+
+async function getFuelFillByClientRef(ref) {
+  if (!ref) return null;
+  return fuelFillOut(await col.fuelFills.findOne({ clientRef: String(ref) }));
 }
 
 async function insertFuelFill(data) {
@@ -745,22 +835,54 @@ async function insertFuelFill(data) {
     km: Number(data.km),
     qty: Number(data.qty),
     workHours: data.workHours === undefined || data.workHours === null || data.workHours === '' ? null : Number(data.workHours),
+    tank: String(data.tank || 'tank1'),
+    dispenserMeter: data.dispenserMeter === undefined || data.dispenserMeter === null || data.dispenserMeter === '' ? null : Number(data.dispenserMeter),
     dateKey: data.dateKey, time: data.time,
     createdAt: new Date().toISOString(), createdBy: data.createdBy || null
   };
-  await col.fuelFills.insertOne(doc);
-  return stripId(doc);
+  if (data.clientRef) doc.clientRef = String(data.clientRef);
+  try {
+    await col.fuelFills.insertOne(doc);
+  } catch (err) {
+    // لا قاعدة تفرّد أخرى على هذه المجموعة — أي خرق فهرس فريد هو مفتاح
+    // التعريف بالضرورة.
+    if (err.code === 11000) {
+      const e = new Error('طلب مُعاد.');
+      e.duplicateClientRef = true;
+      throw e;
+    }
+    throw err;
+  }
+  return fuelFillOut(doc);
+}
+
+// آخر قراءة عدّاد ساعات عمل لآلية معيّنة — نفس دور lastKmForVehicle، لكن
+// لعدّاد ساعات العمل بدل الكيلومتراج، والافتراض الأول هو workHoursBaseline
+// المسجَّل عند تسجيل الآلية (المرحلة 5) لا صفر.
+async function lastWorkHoursForVehicle(name) {
+  const v = String(name).trim();
+  const row = await col.fuelFills
+    .find({ vehicle: v, workHours: { $ne: null } })
+    .sort({ dateKey: -1, time: -1, createdAt: -1 }).limit(1).next();
+  if (row && row.workHours !== null && row.workHours !== undefined) return Number(row.workHours);
+  const veh = await getVehicleByName(v);
+  return veh ? veh.workHoursBaseline : null;
 }
 
 async function listFuelSupply(days) {
   const n = Number(days);
   const sort = { dateKey: -1, time: -1 };
   if (!n || n <= 0) {
-    return (await col.fuelSupply.find({}).sort(sort).toArray()).map(stripId);
+    return (await col.fuelSupply.find({}).sort(sort).toArray()).map(fuelSupplyOut);
   }
   const from = new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
   const rows = await col.fuelSupply.find({ dateKey: { $gte: from } }).sort(sort).toArray();
-  return rows.map(stripId);
+  return rows.map(fuelSupplyOut);
+}
+
+async function getFuelSupplyByClientRef(ref) {
+  if (!ref) return null;
+  return fuelSupplyOut(await col.fuelSupply.findOne({ clientRef: String(ref) }));
 }
 
 async function insertFuelSupply(data) {
@@ -768,33 +890,107 @@ async function insertFuelSupply(data) {
   const doc = {
     _id: id, id,
     meterReading: Number(data.meterReading),
+    tank: String(data.tank || 'tank1'),
     dateKey: data.dateKey, time: data.time,
     createdAt: new Date().toISOString(), createdBy: data.createdBy || null
   };
-  await col.fuelSupply.insertOne(doc);
-  return stripId(doc);
+  if (data.clientRef) doc.clientRef = String(data.clientRef);
+  try {
+    await col.fuelSupply.insertOne(doc);
+  } catch (err) {
+    // لا قاعدة تفرّد أخرى على هذه المجموعة — أي خرق فهرس فريد هو مفتاح
+    // التعريف بالضرورة.
+    if (err.code === 11000) {
+      const e = new Error('طلب مُعاد.');
+      e.duplicateClientRef = true;
+      throw e;
+    }
+    throw err;
+  }
+  return fuelSupplyOut(doc);
 }
 
-// آخر قراءة عدّاد للخزان — نفس دور lastKmForVehicle، لكن لعدّاد واحد للمنشأة كلها.
-async function lastFuelMeterReading() {
+// آخر قراءة عدّاد لخزان معيّن — نفس دور lastKmForVehicle، لكن لكل خزان من
+// الثلاثة الثابتة على حدة (3 خزانات ثابتة دائمًا، لا تُدار من الأدمن).
+async function lastFuelMeterReading(tank) {
   const row = await col.fuelSupply
-    .find({}).sort({ dateKey: -1, time: -1, createdAt: -1 }).limit(1).next();
+    .find({ tank: String(tank) }).sort({ dateKey: -1, time: -1, createdAt: -1 }).limit(1).next();
   if (row) return Number(row.meterReading);
-  const baseline = await getFuelBaseline();
+  const baseline = await getFuelBaseline(tank);
   return baseline ? baseline.initialMeter : null;
 }
 
-async function getFuelBaseline() {
-  const qty = await getSetting('fuel_initial_qty');
-  const meter = await getSetting('fuel_initial_meter');
+async function getFuelBaseline(tank) {
+  const qty = await getSetting(`fuel_initial_qty_${tank}`);
+  const meter = await getSetting(`fuel_initial_meter_${tank}`);
   if (qty === null || meter === null) return null;
   return { initialQty: Number(qty), initialMeter: Number(meter) };
 }
 
-async function setFuelBaseline(initialQty, initialMeter) {
-  await setSetting('fuel_initial_qty', Number(initialQty));
-  await setSetting('fuel_initial_meter', Number(initialMeter));
-  return getFuelBaseline();
+async function setFuelBaseline(tank, initialQty, initialMeter) {
+  await setSetting(`fuel_initial_qty_${tank}`, Number(initialQty));
+  await setSetting(`fuel_initial_meter_${tank}`, Number(initialMeter));
+  return getFuelBaseline(tank);
+}
+
+// عدّاد الكازية التراكمي: عدّاد واحد للمحطة كلها بلا علاقة بالخزانات، يُسجَّل
+// اختياريًا مع كل تعبئة آلية، ويُستخدَم فقط للمقارنة/التصالح مع مجموع الكميات
+// المُدخلة يدويًا — لا رصيد ابتدائي له، أول قراءة تُسجَّل تصير نقطة البداية.
+async function lastDispenserMeterReading() {
+  const row = await col.fuelFills
+    .find({ dispenserMeter: { $ne: null } })
+    .sort({ dateKey: -1, time: -1, createdAt: -1 }).limit(1).next();
+  return row ? Number(row.dispenserMeter) : null;
+}
+
+/* ---------------------------------------------------------- آليات الضيوف */
+
+// الضيوف بالموقع الآن دائمًا + من خرج خلال آخر `days` يومًا — نفس مبدأ listEntries.
+async function listGuestVisits(days) {
+  const n = Number(days);
+  const sort = { dateIn: -1, timeIn: -1 };
+  if (!n || n <= 0) {
+    return (await col.guestVisits.find({}).sort(sort).toArray()).map(stripId);
+  }
+  const from = new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+  const rows = await col.guestVisits
+    .find({ $or: [{ status: 'in' }, { dateIn: { $gte: from } }] })
+    .sort(sort).toArray();
+  return rows.map(stripId);
+}
+
+async function insertGuestVisit(data) {
+  const id = newId('g');
+  const doc = {
+    _id: id, id,
+    vehicleDesc: String(data.vehicleDesc).trim(),
+    purpose: String(data.purpose).trim(),
+    dateIn: data.dateIn, timeIn: data.timeIn,
+    dateOut: null, timeOut: null,
+    status: 'in', createdBy: data.createdBy || null
+  };
+  await col.guestVisits.insertOne(doc);
+  return stripId(doc);
+}
+
+/**
+ * إغلاق زيارة ضيف. نفس مبدأ closeEntry: تحديث شرطي (status: 'in' داخل الفلتر)
+ * ذرّي في MongoDB بلا حاجة لمعاملة صريحة — لكن هنا بلا فحص findOne أوّلي منفصل
+ * لأن سجلّ الضيوف أقل تنافسًا بكثير من entries (see closeEntry أعلاه)؛ الفحص
+ * الوحيد اللازم هو: هل المستند موجود؟ فإن لم يوجد أصلًا فالخطأ notfound، وإن
+ * وُجد لكن حالته لم تعد 'in' فالخطأ already.
+ */
+async function closeGuestVisit(id, data) {
+  const existing = await col.guestVisits.findOne({ _id: String(id) });
+  if (!existing) return { error: 'notfound' };
+
+  const res = await col.guestVisits.findOneAndUpdate(
+    { _id: String(id), status: 'in' },
+    { $set: { dateOut: data.dateOut, timeOut: data.timeOut, status: 'out' } },
+    { returnDocument: 'after' }
+  );
+  if (!res) return { error: 'already', visit: stripId(existing) };
+  return { visit: stripId(res) };
 }
 
 /* ------------------------------------------------- النسخ الاحتياطي */
@@ -831,8 +1027,10 @@ module.exports = {
   listVehicles, listEntries, getEntry, getEntryByClientRef, getVehicle, getVehicleByName,
   lastKmForVehicle, vehicleIsOut, countEntriesForVehicle,
   insertEntry, closeEntry, updateEntry, deleteEntry,
-  insertVehicle, updateVehicle, deleteVehicle,
-  listDrivers, getDriverByName, insertDriver, updateDriver, deleteDriver,
-  insertFuelFill, listFuelFills, insertFuelSupply, listFuelSupply,
-  lastFuelMeterReading, getFuelBaseline, setFuelBaseline
+  insertVehicle, updateVehicle, deleteVehicle, getVehicleByClientRef,
+  listDrivers, getDriverByName, insertDriver, updateDriver, deleteDriver, getDriverByClientRef,
+  insertFuelFill, listFuelFills, insertFuelSupply, listFuelSupply, lastWorkHoursForVehicle, lastDispenserMeterReading,
+  getFuelFillByClientRef, getFuelSupplyByClientRef,
+  lastFuelMeterReading, getFuelBaseline, setFuelBaseline,
+  listGuestVisits, insertGuestVisit, closeGuestVisit
 };

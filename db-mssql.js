@@ -199,6 +199,41 @@ async function init(options) {
   await ensureColumn('vehicles', 'type', 'type NVARCHAR(32) NULL');
   await ensureColumn('vehicles', 'fuel_tank_qty', 'fuel_tank_qty FLOAT NULL');
   await ensureColumn('entries', 'load_qty', 'load_qty FLOAT NULL');
+  await ensureColumn('vehicles', 'work_hours_baseline', 'work_hours_baseline FLOAT NULL');
+  await ensureColumn('entries', 'technician_name', 'technician_name NVARCHAR(200) NULL');
+  await ensureColumn('entries', 'technician_assistant', 'technician_assistant NVARCHAR(200) NULL');
+  await ensureColumn('entries', 'manual_pour', 'manual_pour BIT NULL');
+
+  // 3 خزانات مازوت ثابتة (tank1/tank2/tank3) بدل خزان واحد — كل تعبئة آلية أو
+  // تعبئة خزان تحدَّد بخزانها؛ السجلّات القديمة تُنسَب افتراضيًا لأول خزان.
+  // عدّاد الكازية (dispenser_meter) عدّاد تراكمي عام للمحطة كلها، منفصل عن
+  // كمية التعبئة اليدوية، يُستخدَم للتصالح لاحقًا فقط.
+  await ensureColumn('fuel_fills', 'tank', "tank NVARCHAR(16) NOT NULL CONSTRAINT df_fuel_fills_tank DEFAULT N'tank1'");
+  await ensureColumn('fuel_fills', 'dispenser_meter', 'dispenser_meter FLOAT NULL');
+  await ensureColumn('fuel_supply', 'tank', "tank NVARCHAR(16) NOT NULL CONSTRAINT df_fuel_supply_tank DEFAULT N'tank1'");
+
+  // مفاتيح تعريف لكل نماذج الإدخال — تسمح بإعادة الإرسال الآمنة بعد انقطاع
+  // الشبكة (نفس مبدأ client_ref في entries) لشاشات الآليات والسائقين والمازوت.
+  await ensureColumn('vehicles', 'client_ref', 'client_ref NVARCHAR(64) NULL');
+  await ensureColumn('drivers', 'client_ref', 'client_ref NVARCHAR(64) NULL');
+  await ensureColumn('fuel_fills', 'client_ref', 'client_ref NVARCHAR(64) NULL');
+  await ensureColumn('fuel_supply', 'client_ref', 'client_ref NVARCHAR(64) NULL');
+  await pool.request().query(
+    `IF NOT EXISTS (SELECT 1 FROM sys.indexes
+                    WHERE name='ux_vehicles_client_ref' AND object_id=OBJECT_ID('dbo.vehicles'))
+     CREATE UNIQUE INDEX ux_vehicles_client_ref ON dbo.vehicles(client_ref) WHERE client_ref IS NOT NULL`);
+  await pool.request().query(
+    `IF NOT EXISTS (SELECT 1 FROM sys.indexes
+                    WHERE name='ux_drivers_client_ref' AND object_id=OBJECT_ID('dbo.drivers'))
+     CREATE UNIQUE INDEX ux_drivers_client_ref ON dbo.drivers(client_ref) WHERE client_ref IS NOT NULL`);
+  await pool.request().query(
+    `IF NOT EXISTS (SELECT 1 FROM sys.indexes
+                    WHERE name='ux_fuel_fills_client_ref' AND object_id=OBJECT_ID('dbo.fuel_fills'))
+     CREATE UNIQUE INDEX ux_fuel_fills_client_ref ON dbo.fuel_fills(client_ref) WHERE client_ref IS NOT NULL`);
+  await pool.request().query(
+    `IF NOT EXISTS (SELECT 1 FROM sys.indexes
+                    WHERE name='ux_fuel_supply_client_ref' AND object_id=OBJECT_ID('dbo.fuel_supply'))
+     CREATE UNIQUE INDEX ux_fuel_supply_client_ref ON dbo.fuel_supply(client_ref) WHERE client_ref IS NOT NULL`);
 
   const initialPasswords = await seedUsers(options && options.adminPassword);
   const dbName = (typeof cfg === 'string') ? '(من رابط الاتصال)' : cfg.database;
@@ -372,7 +407,26 @@ async function createSchema() {
 
     `IF NOT EXISTS (SELECT 1 FROM sys.indexes
                     WHERE name='ix_fuel_supply_date' AND object_id=OBJECT_ID('dbo.fuel_supply'))
-     CREATE INDEX ix_fuel_supply_date ON dbo.fuel_supply(date_key DESC, [time] DESC)`
+     CREATE INDEX ix_fuel_supply_date ON dbo.fuel_supply(date_key DESC, [time] DESC)`,
+
+    // سجلّ آليات ضيوف: دخول/خروج مبسّط بلا كيلومتراج ولا زبون ثابت — الهدف
+    // معرفة من بالموقع الآن فقط.
+    `IF OBJECT_ID('dbo.guest_visits','U') IS NULL
+     CREATE TABLE dbo.guest_visits (
+       id           NVARCHAR(64)  NOT NULL PRIMARY KEY,
+       vehicle_desc NVARCHAR(200) NOT NULL,
+       purpose      NVARCHAR(300) NOT NULL,
+       date_in      NVARCHAR(10)  NOT NULL,
+       time_in      NVARCHAR(5)   NOT NULL,
+       date_out     NVARCHAR(10)  NULL,
+       time_out     NVARCHAR(5)   NULL,
+       status       NVARCHAR(8)   NOT NULL CONSTRAINT ck_guest_visits_status CHECK (status IN (N'in', N'out')),
+       created_by   NVARCHAR(120) NULL
+     )`,
+
+    `IF NOT EXISTS (SELECT 1 FROM sys.indexes
+                    WHERE name='ix_guest_visits_status' AND object_id=OBJECT_ID('dbo.guest_visits'))
+     CREATE INDEX ix_guest_visits_status ON dbo.guest_visits(status)`
   ];
 
   for (const stmt of statements) {
@@ -435,7 +489,8 @@ const DEFAULT_ROLE_USERS = [
   { username: 'بوابة',                    role: 'gate',                   fullName: 'حساب البوابة' },
   { username: 'مدير_الاليات',              role: 'fleet_manager',          fullName: 'مدير الآليات' },
   { username: 'المازوت',                   role: 'fuel',                   fullName: 'حساب المازوت' },
-  { username: 'مدير_مستودع_المازوت',        role: 'fuel_warehouse_manager', fullName: 'مدير مستودع المازوت' }
+  { username: 'مدير_مستودع_المازوت',        role: 'fuel_warehouse_manager', fullName: 'مدير مستودع المازوت' },
+  { username: 'مسؤول_الموارد_البشرية',      role: 'hr',                     fullName: 'مسؤول الموارد البشرية' }
 ];
 
 /**
@@ -634,6 +689,9 @@ function entryOut(r) {
     returnDate: r.return_date, returnTime: r.return_time,
     km: r.km === null || r.km === undefined ? null : Number(r.km),
     loadQty: r.load_qty === null || r.load_qty === undefined ? null : Number(r.load_qty),
+    technicianName: r.technician_name || null,
+    technicianAssistant: r.technician_assistant || null,
+    manualPour: !!r.manual_pour,
     notesIn: r.notes_in, status: r.status,
     createdAt: r.created_at, updatedAt: r.updated_at,
     clientRef: r.client_ref, returnClientRef: r.return_client_ref
@@ -645,7 +703,8 @@ function vehicleOut(r) {
   return {
     id: r.id, name: r.name, baselineKm: Number(r.baseline_km), registeredAt: r.registered_at,
     type: r.type || null,
-    fuelTankQty: r.fuel_tank_qty === null || r.fuel_tank_qty === undefined ? null : Number(r.fuel_tank_qty)
+    fuelTankQty: r.fuel_tank_qty === null || r.fuel_tank_qty === undefined ? null : Number(r.fuel_tank_qty),
+    workHoursBaseline: r.work_hours_baseline === null || r.work_hours_baseline === undefined ? null : Number(r.work_hours_baseline)
   };
 }
 
@@ -730,12 +789,15 @@ async function insertEntry(data) {
   try {
     await q(`INSERT INTO dbo.entries
               (id, date_key, vehicle, driver, customer, depart_time, notes_out,
-               return_date, return_time, km, load_qty, notes_in, status, created_at, updated_at, client_ref)
-             VALUES (@id,@dk,@v,@d,@c,@dt,@no,NULL,NULL,NULL,@lq,N'',N'out',@ca,@ua,@cr)`,
+               return_date, return_time, km, load_qty, technician_name, technician_assistant, manual_pour,
+               notes_in, status, created_at, updated_at, client_ref)
+             VALUES (@id,@dk,@v,@d,@c,@dt,@no,NULL,NULL,NULL,@lq,@tn,@ta,@mp,N'',N'out',@ca,@ua,@cr)`,
       [['id', NV(64), id], ['dk', NV(10), data.dateKey], ['v', NV(120), data.vehicle],
        ['d', NV(120), data.driver], ['c', NV(120), data.customer],
        ['dt', NV(5), data.departTime], ['no', NV(400), data.notesOut || ''],
        ['lq', FLT, data.loadQty === undefined || data.loadQty === null ? null : Number(data.loadQty)],
+       ['tn', NV(200), data.technicianName || null], ['ta', NV(200), data.technicianAssistant || null],
+       ['mp', sql.Bit, data.manualPour ? 1 : 0],
        ['ca', NV(40), now], ['ua', NV(40), now],
        ['cr', NV(64), data.clientRef || null]]);
   } catch (err) {
@@ -787,13 +849,16 @@ async function updateEntry(id, data) {
 
   await q(`UPDATE dbo.entries
            SET date_key=@dk, vehicle=@v, driver=@d, customer=@c, depart_time=@dt,
-               notes_out=@no, load_qty=@lq, return_date=@rd, return_time=@rt, km=@km,
+               notes_out=@no, load_qty=@lq, technician_name=@tn, technician_assistant=@ta, manual_pour=@mp,
+               return_date=@rd, return_time=@rt, km=@km,
                notes_in=@ni, status=@st, updated_at=@ua
            WHERE id=@id`,
     [['dk', NV(10), data.dateKey], ['v', NV(120), data.vehicle],
      ['d', NV(120), data.driver], ['c', NV(120), data.customer],
      ['dt', NV(5), data.departTime], ['no', NV(400), data.notesOut || ''],
      ['lq', FLT, data.loadQty === undefined || data.loadQty === null || data.loadQty === '' ? null : Number(data.loadQty)],
+     ['tn', NV(200), data.technicianName || null], ['ta', NV(200), data.technicianAssistant || null],
+     ['mp', sql.Bit, data.manualPour ? 1 : 0],
      ['rd', NV(10), done ? (data.returnDate || data.dateKey) : null],
      ['rt', NV(5), done ? data.returnTime : null],
      ['km', FLT, done ? Number(data.km) : null],
@@ -809,14 +874,39 @@ async function deleteEntry(id) {
   return ((r.rowsAffected && r.rowsAffected[0]) || 0) > 0;
 }
 
-async function insertVehicle(name, baselineKm, type, fuelTankQty) {
+async function getVehicleByClientRef(ref) {
+  if (!ref) return null;
+  return vehicleOut(await one('SELECT * FROM dbo.vehicles WHERE client_ref = @r',
+    [['r', NV(64), String(ref)]]));
+}
+
+async function insertVehicle(name, baselineKm, type, fuelTankQty, workHoursBaseline, clientRef) {
   const id = newId('v');
-  await q(`INSERT INTO dbo.vehicles (id, name, baseline_km, type, fuel_tank_qty, registered_at)
-           VALUES (@id,@n,@km,@t,@f,@r)`,
-    [['id', NV(64), id], ['n', NV(120), String(name).trim()],
-     ['km', FLT, Number(baselineKm)], ['t', NV(32), type || null],
-     ['f', FLT, fuelTankQty === undefined || fuelTankQty === null || fuelTankQty === '' ? null : Number(fuelTankQty)],
-     ['r', NV(40), new Date().toISOString()]]);
+  try {
+    await q(`INSERT INTO dbo.vehicles (id, name, baseline_km, type, fuel_tank_qty, work_hours_baseline, registered_at, client_ref)
+             VALUES (@id,@n,@km,@t,@f,@whb,@r,@cr)`,
+      [['id', NV(64), id], ['n', NV(120), String(name).trim()],
+       ['km', FLT, Number(baselineKm)], ['t', NV(32), type || null],
+       ['f', FLT, fuelTankQty === undefined || fuelTankQty === null || fuelTankQty === '' ? null : Number(fuelTankQty)],
+       ['whb', FLT, workHoursBaseline === undefined || workHoursBaseline === null || workHoursBaseline === '' ? null : Number(workHoursBaseline)],
+       ['r', NV(40), new Date().toISOString()],
+       ['cr', NV(64), clientRef || null]]);
+  } catch (err) {
+    // خرق فهرس فريد: إمّا الاسم (لا يُتحقَّق منه في هذا الملف اليوم — طبقة
+    // server.js تتحقّق سلفًا وتُرجع 409 خاصًا بها، وهذه إضافة احترازية فقط
+    // تُماثل سلوك محرّك sqlite الجديد)، أو مفتاح التعريف (إعادة إرسال آمنة).
+    if (isDuplicateError(err)) {
+      if (await getVehicleByName(name)) {
+        const e = new Error('هذه الآلية مسجّلة مسبقًا.');
+        e.duplicateName = true;
+        throw e;
+      }
+      const e = new Error('طلب مُعاد.');
+      e.duplicateClientRef = true;
+      throw e;
+    }
+    throw err;
+  }
   return getVehicle(id);
 }
 
@@ -824,7 +914,7 @@ async function insertVehicle(name, baselineKm, type, fuelTankQty) {
  * تعديل آلية. إعادة التسمية تُحدِّث كل سجلاتها داخل معاملة واحدة، وإلا انفصل
  * تاريخها القديم عن اسمها الجديد وضاعت حسابات المسافة.
  */
-async function updateVehicle(id, name, baselineKm, type, fuelTankQty) {
+async function updateVehicle(id, name, baselineKm, type, fuelTankQty, workHoursBaseline) {
   const old = await one('SELECT * FROM dbo.vehicles WHERE id = @id', [['id', NV(64), String(id)]]);
   if (!old) return null;
   const newName = String(name).trim();
@@ -832,10 +922,11 @@ async function updateVehicle(id, name, baselineKm, type, fuelTankQty) {
   const tx = new sql.Transaction(pool);
   await tx.begin();
   try {
-    await q('UPDATE dbo.vehicles SET name=@n, baseline_km=@km, type=@t, fuel_tank_qty=@f WHERE id=@id',
+    await q('UPDATE dbo.vehicles SET name=@n, baseline_km=@km, type=@t, fuel_tank_qty=@f, work_hours_baseline=@whb WHERE id=@id',
       [['n', NV(120), newName], ['km', FLT, Number(baselineKm)],
        ['t', NV(32), type || null],
        ['f', FLT, fuelTankQty === undefined || fuelTankQty === null || fuelTankQty === '' ? null : Number(fuelTankQty)],
+       ['whb', FLT, workHoursBaseline === undefined || workHoursBaseline === null || workHoursBaseline === '' ? null : Number(workHoursBaseline)],
        ['id', NV(64), String(id)]], tx);
     if (old.name !== newName) {
       await q('UPDATE dbo.entries SET vehicle=@n, updated_at=@ua WHERE vehicle=@o',
@@ -866,17 +957,29 @@ async function getDriverByName(name) {
     [['n', NV(200), String(name).trim()]]));
 }
 
+async function getDriverByClientRef(ref) {
+  if (!ref) return null;
+  return driverOut(await one('SELECT * FROM dbo.drivers WHERE client_ref = @r',
+    [['r', NV(64), String(ref)]]));
+}
+
 async function insertDriver(data) {
   const id = newId('d');
   try {
-    await q('INSERT INTO dbo.drivers (id, name, allowed_types, created_at) VALUES (@id,@n,@a,@ca)',
+    await q('INSERT INTO dbo.drivers (id, name, allowed_types, created_at, client_ref) VALUES (@id,@n,@a,@ca,@cr)',
       [['id', NV(64), id], ['n', NV(200), String(data.name).trim()],
        ['a', NV(400), JSON.stringify(data.allowedTypes || [])],
-       ['ca', NV(40), new Date().toISOString()]]);
+       ['ca', NV(40), new Date().toISOString()],
+       ['cr', NV(64), data.clientRef || null]]);
   } catch (err) {
     if (isDuplicateError(err)) {
-      const e = new Error('هذا السائق مسجّل مسبقًا.');
-      e.duplicateDriverName = true;
+      if (await getDriverByName(data.name)) {
+        const e = new Error('هذا السائق مسجّل مسبقًا.');
+        e.duplicateDriverName = true;
+        throw e;
+      }
+      const e = new Error('طلب مُعاد.');
+      e.duplicateClientRef = true;
       throw e;
     }
     throw err;
@@ -915,6 +1018,8 @@ function fuelFillOut(r) {
   return {
     id: r.id, vehicle: r.vehicle, km: Number(r.km), qty: Number(r.qty),
     workHours: r.work_hours === null || r.work_hours === undefined ? null : Number(r.work_hours),
+    tank: r.tank || 'tank1',
+    dispenserMeter: r.dispenser_meter === null || r.dispenser_meter === undefined ? null : Number(r.dispenser_meter),
     dateKey: r.date_key, time: r.time, createdAt: r.created_at, createdBy: r.created_by
   };
 }
@@ -922,7 +1027,7 @@ function fuelFillOut(r) {
 function fuelSupplyOut(r) {
   if (!r) return null;
   return {
-    id: r.id, meterReading: Number(r.meter_reading),
+    id: r.id, meterReading: Number(r.meter_reading), tank: r.tank || 'tank1',
     dateKey: r.date_key, time: r.time, createdAt: r.created_at, createdBy: r.created_by
   };
 }
@@ -940,16 +1045,49 @@ async function listFuelFills(days) {
     [['from', NV(10), from]])).map(fuelFillOut);
 }
 
+async function getFuelFillByClientRef(ref) {
+  if (!ref) return null;
+  return fuelFillOut(await one('SELECT * FROM dbo.fuel_fills WHERE client_ref = @r',
+    [['r', NV(64), String(ref)]]));
+}
+
 async function insertFuelFill(data) {
   const id = newId('f');
-  await q(`INSERT INTO dbo.fuel_fills (id, vehicle, km, qty, work_hours, date_key, [time], created_at, created_by)
-           VALUES (@id,@v,@km,@qty,@wh,@dk,@t,@ca,@cb)`,
-    [['id', NV(64), id], ['v', NV(200), String(data.vehicle).trim()],
-     ['km', FLT, Number(data.km)], ['qty', FLT, Number(data.qty)],
-     ['wh', FLT, data.workHours === undefined || data.workHours === null || data.workHours === '' ? null : Number(data.workHours)],
-     ['dk', NV(10), data.dateKey], ['t', NV(5), data.time],
-     ['ca', NV(40), new Date().toISOString()], ['cb', NV(120), data.createdBy || null]]);
+  try {
+    await q(`INSERT INTO dbo.fuel_fills (id, vehicle, km, qty, work_hours, tank, dispenser_meter, date_key, [time], created_at, created_by, client_ref)
+             VALUES (@id,@v,@km,@qty,@wh,@tk,@dm,@dk,@t,@ca,@cb,@cr)`,
+      [['id', NV(64), id], ['v', NV(200), String(data.vehicle).trim()],
+       ['km', FLT, Number(data.km)], ['qty', FLT, Number(data.qty)],
+       ['wh', FLT, data.workHours === undefined || data.workHours === null || data.workHours === '' ? null : Number(data.workHours)],
+       ['tk', NV(16), String(data.tank || 'tank1')],
+       ['dm', FLT, data.dispenserMeter === undefined || data.dispenserMeter === null || data.dispenserMeter === '' ? null : Number(data.dispenserMeter)],
+       ['dk', NV(10), data.dateKey], ['t', NV(5), data.time],
+       ['ca', NV(40), new Date().toISOString()], ['cb', NV(120), data.createdBy || null],
+       ['cr', NV(64), data.clientRef || null]]);
+  } catch (err) {
+    // لا يوجد أي قيد فريد آخر على هذا الجدول، فأي خرق هنا هو بالضرورة مفتاح
+    // التعريف — إعادة إرسال لطلب نجح أصلًا.
+    if (isDuplicateError(err)) {
+      const e = new Error('طلب مُعاد.');
+      e.duplicateClientRef = true;
+      throw e;
+    }
+    throw err;
+  }
   return fuelFillOut(await one('SELECT * FROM dbo.fuel_fills WHERE id = @id', [['id', NV(64), id]]));
+}
+
+// آخر قراءة عدّاد ساعات عمل لآلية معيّنة — نفس دور lastKmForVehicle، لكن
+// لعدّاد ساعات العمل بدل الكيلومتراج، والافتراض الأول هو work_hours_baseline
+// المسجَّل عند تسجيل الآلية (المرحلة 5) لا صفر.
+async function lastWorkHoursForVehicle(name) {
+  const v = String(name).trim();
+  const r = await one(`SELECT TOP 1 work_hours FROM dbo.fuel_fills
+                       WHERE vehicle = @v AND work_hours IS NOT NULL
+                       ORDER BY date_key DESC, [time] DESC, created_at DESC`, [['v', NV(200), v]]);
+  if (r && r.work_hours !== null && r.work_hours !== undefined) return Number(r.work_hours);
+  const veh = await getVehicleByName(v);
+  return veh ? veh.workHoursBaseline : null;
 }
 
 async function listFuelSupply(days) {
@@ -965,36 +1103,128 @@ async function listFuelSupply(days) {
     [['from', NV(10), from]])).map(fuelSupplyOut);
 }
 
+async function getFuelSupplyByClientRef(ref) {
+  if (!ref) return null;
+  return fuelSupplyOut(await one('SELECT * FROM dbo.fuel_supply WHERE client_ref = @r',
+    [['r', NV(64), String(ref)]]));
+}
+
 async function insertFuelSupply(data) {
   const id = newId('s');
-  await q(`INSERT INTO dbo.fuel_supply (id, meter_reading, date_key, [time], created_at, created_by)
-           VALUES (@id,@mr,@dk,@t,@ca,@cb)`,
-    [['id', NV(64), id], ['mr', FLT, Number(data.meterReading)],
-     ['dk', NV(10), data.dateKey], ['t', NV(5), data.time],
-     ['ca', NV(40), new Date().toISOString()], ['cb', NV(120), data.createdBy || null]]);
+  try {
+    await q(`INSERT INTO dbo.fuel_supply (id, meter_reading, tank, date_key, [time], created_at, created_by, client_ref)
+             VALUES (@id,@mr,@tk,@dk,@t,@ca,@cb,@cr)`,
+      [['id', NV(64), id], ['mr', FLT, Number(data.meterReading)],
+       ['tk', NV(16), String(data.tank || 'tank1')],
+       ['dk', NV(10), data.dateKey], ['t', NV(5), data.time],
+       ['ca', NV(40), new Date().toISOString()], ['cb', NV(120), data.createdBy || null],
+       ['cr', NV(64), data.clientRef || null]]);
+  } catch (err) {
+    // لا يوجد أي قيد فريد آخر على هذا الجدول، فأي خرق هنا هو بالضرورة مفتاح
+    // التعريف — إعادة إرسال لطلب نجح أصلًا.
+    if (isDuplicateError(err)) {
+      const e = new Error('طلب مُعاد.');
+      e.duplicateClientRef = true;
+      throw e;
+    }
+    throw err;
+  }
   return fuelSupplyOut(await one('SELECT * FROM dbo.fuel_supply WHERE id = @id', [['id', NV(64), id]]));
 }
 
-// آخر قراءة عدّاد للخزان — نفس دور lastKmForVehicle، لكن لعدّاد واحد للمنشأة كلها.
-async function lastFuelMeterReading() {
+// آخر قراءة عدّاد لخزان معيّن — نفس دور lastKmForVehicle، لكن لكل خزان من
+// الثلاثة الثابتة على حدة (3 خزانات ثابتة دائمًا، لا تُدار من الأدمن).
+async function lastFuelMeterReading(tank) {
   const r = await one(`SELECT TOP 1 meter_reading FROM dbo.fuel_supply
-                       ORDER BY date_key DESC, [time] DESC, created_at DESC`);
+                       WHERE tank = @tk
+                       ORDER BY date_key DESC, [time] DESC, created_at DESC`,
+    [['tk', NV(16), String(tank)]]);
   if (r && r.meter_reading !== null && r.meter_reading !== undefined) return Number(r.meter_reading);
-  const baseline = await getFuelBaseline();
+  const baseline = await getFuelBaseline(tank);
   return baseline ? baseline.initialMeter : null;
 }
 
-async function getFuelBaseline() {
-  const qty = await getSetting('fuel_initial_qty');
-  const meter = await getSetting('fuel_initial_meter');
+async function getFuelBaseline(tank) {
+  const qty = await getSetting(`fuel_initial_qty_${tank}`);
+  const meter = await getSetting(`fuel_initial_meter_${tank}`);
   if (qty === null || meter === null) return null;
   return { initialQty: Number(qty), initialMeter: Number(meter) };
 }
 
-async function setFuelBaseline(initialQty, initialMeter) {
-  await setSetting('fuel_initial_qty', Number(initialQty));
-  await setSetting('fuel_initial_meter', Number(initialMeter));
-  return getFuelBaseline();
+async function setFuelBaseline(tank, initialQty, initialMeter) {
+  await setSetting(`fuel_initial_qty_${tank}`, Number(initialQty));
+  await setSetting(`fuel_initial_meter_${tank}`, Number(initialMeter));
+  return getFuelBaseline(tank);
+}
+
+// عدّاد الكازية التراكمي: عدّاد واحد للمحطة كلها بلا علاقة بالخزانات، يُسجَّل
+// اختياريًا مع كل تعبئة آلية، ويُستخدَم فقط للمقارنة/التصالح مع مجموع الكميات
+// المُدخلة يدويًا — لا رصيد ابتدائي له، أول قراءة تُسجَّل تصير نقطة البداية.
+async function lastDispenserMeterReading() {
+  const r = await one(`SELECT TOP 1 dispenser_meter FROM dbo.fuel_fills
+                       WHERE dispenser_meter IS NOT NULL
+                       ORDER BY date_key DESC, [time] DESC, created_at DESC`);
+  return r && r.dispenser_meter !== null && r.dispenser_meter !== undefined ? Number(r.dispenser_meter) : null;
+}
+
+/* ---------------------------------------------------------- آليات الضيوف */
+
+function guestVisitOut(r) {
+  if (!r) return null;
+  return {
+    id: r.id, vehicleDesc: r.vehicle_desc, purpose: r.purpose,
+    dateIn: r.date_in, timeIn: r.time_in,
+    dateOut: r.date_out, timeOut: r.time_out,
+    status: r.status, createdBy: r.created_by
+  };
+}
+
+// الضيوف بالموقع الآن دائمًا + من خرج خلال آخر `days` يومًا — نفس مبدأ listEntries.
+async function listGuestVisits(days) {
+  const n = Number(days);
+  if (!n || n <= 0) {
+    return (await all(`SELECT * FROM dbo.guest_visits
+                       ORDER BY date_in DESC, time_in DESC`)).map(guestVisitOut);
+  }
+  const from = new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+  return (await all(`SELECT * FROM dbo.guest_visits
+                     WHERE status = N'in' OR date_in >= @from
+                     ORDER BY date_in DESC, time_in DESC`,
+    [['from', NV(10), from]])).map(guestVisitOut);
+}
+
+async function insertGuestVisit(data) {
+  const id = newId('g');
+  await q(`INSERT INTO dbo.guest_visits (id, vehicle_desc, purpose, date_in, time_in, date_out, time_out, status, created_by)
+           VALUES (@id,@vd,@p,@di,@ti,NULL,NULL,N'in',@cb)`,
+    [['id', NV(64), id], ['vd', NV(200), String(data.vehicleDesc).trim()],
+     ['p', NV(300), String(data.purpose).trim()],
+     ['di', NV(10), data.dateIn], ['ti', NV(5), data.timeIn],
+     ['cb', NV(120), data.createdBy || null]]);
+  return guestVisitOut(await one('SELECT * FROM dbo.guest_visits WHERE id = @id', [['id', NV(64), id]]));
+}
+
+/**
+ * إغلاق زيارة ضيف. أبسط من closeEntry عمدًا: سجلّ الضيوف احتمال تسابق جهازين
+ * عليه أقل بكثير من رحلات الآليات (لا فهرس فريد يحميه)، فتحديث بشرط
+ * `status = N'in'` كافٍ دون معاملة صريحة — إن خرق جهازان الشرط في آنٍ واحد
+ * فأحدهما فقط يطابق الصف (rowsAffected = 0 للآخر).
+ */
+async function closeGuestVisit(id, data) {
+  const existing = await one('SELECT * FROM dbo.guest_visits WHERE id = @id', [['id', NV(64), String(id)]]);
+  if (!existing) return { error: 'notfound' };
+  if (existing.status !== 'in') return { error: 'already', visit: guestVisitOut(existing) };
+
+  const r = await q(`UPDATE dbo.guest_visits SET date_out=@do, time_out=@to, status=N'out'
+                     WHERE id=@id AND status=N'in'`,
+    [['do', NV(10), data.dateOut], ['to', NV(5), data.timeOut], ['id', NV(64), String(id)]]);
+
+  const changed = (r.rowsAffected && r.rowsAffected[0]) || 0;
+  if (changed === 0) {
+    const fresh = await one('SELECT * FROM dbo.guest_visits WHERE id = @id', [['id', NV(64), String(id)]]);
+    return { error: 'already', visit: guestVisitOut(fresh) };
+  }
+  return { visit: guestVisitOut(await one('SELECT * FROM dbo.guest_visits WHERE id = @id', [['id', NV(64), String(id)]])) };
 }
 
 /* ------------------------------------------------- النسخ الاحتياطي */
@@ -1030,8 +1260,10 @@ module.exports = {
   listVehicles, listEntries, getEntry, getEntryByClientRef, getVehicle, getVehicleByName,
   lastKmForVehicle, vehicleIsOut, countEntriesForVehicle,
   insertEntry, closeEntry, updateEntry, deleteEntry,
-  insertVehicle, updateVehicle, deleteVehicle,
-  listDrivers, getDriverByName, insertDriver, updateDriver, deleteDriver,
-  insertFuelFill, listFuelFills, insertFuelSupply, listFuelSupply,
-  lastFuelMeterReading, getFuelBaseline, setFuelBaseline
+  insertVehicle, updateVehicle, deleteVehicle, getVehicleByClientRef,
+  listDrivers, getDriverByName, insertDriver, updateDriver, deleteDriver, getDriverByClientRef,
+  insertFuelFill, listFuelFills, insertFuelSupply, listFuelSupply, lastWorkHoursForVehicle, lastDispenserMeterReading,
+  getFuelFillByClientRef, getFuelSupplyByClientRef,
+  lastFuelMeterReading, getFuelBaseline, setFuelBaseline,
+  listGuestVisits, insertGuestVisit, closeGuestVisit
 };
