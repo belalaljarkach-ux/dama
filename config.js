@@ -82,6 +82,12 @@ const config = {
   // كخط رجوع، وقابلة للتجاوز من الإعدادات لمن يريد كلمة مختلفة.
   adminPassword: pick('ADMIN_PASSWORD', 'adminPassword', 'sald2024'),
 
+  // ساعة بداية اليوم التشغيلي (0–23). 3 = يبدأ 03:00 فجرًا وينتهي 02:59:59 من اليوم التالي.
+  dayStartHour: (() => {
+    const n = parseInt(pick('GATE_LOG_DAY_START_HOUR', 'dayStartHour', 3), 10);
+    return Number.isInteger(n) && n >= 0 && n <= 23 ? n : 3;
+  })(),
+
   port:       Number(pick('PORT',          'port',     8787)),
   host:       pick('HOST',                 'host',     '0.0.0.0'),
   dataDir:    pick('GATE_LOG_DATA',        'dataDir',  path.join(__dirname, 'data')),

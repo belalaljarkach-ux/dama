@@ -22,5 +22,6 @@
 
   "port": 8787,
   "host": "0.0.0.0",
+  "dayStartHour": 3,
   "windowDays": 120
 }
