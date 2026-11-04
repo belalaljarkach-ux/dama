@@ -83,6 +83,8 @@
     border-radius:20px;padding:4px 14px;cursor:pointer;
   }
   .hero-title{font-size:26px;font-weight:900;margin:6px 0 14px;}
+  .hero-corner{margin-top:10px;text-align:left;font-size:13px;color:#D9C89C;}
+  .hero-corner b{font-size:16px;font-weight:900;color:#fff;margin-inline-start:4px;}
   .hero-perf{border-top:2px dashed rgba(255,255,255,.25);margin:6px 0 14px;}
   .hero-stats{display:flex;gap:10px;flex-wrap:wrap;}
   .kpi{
@@ -93,6 +95,7 @@
   .kpi .l{font-size:12px;color:#D9C89C;}
   .kpi.alert-kpi{background:rgba(178,51,39,.35);border-color:rgba(178,51,39,.6);}
   .kpi.out-kpi{background:rgba(185,162,118,.35);border-color:rgba(185,162,118,.65);}
+  .kpi.warn-kpi{background:rgba(178,51,39,.18);border-color:rgba(178,51,39,.45);}
 
   /* ---- التبويبات ---- */
   .tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--line);flex-wrap:wrap;}
@@ -294,6 +297,7 @@
       <div class="hero-title">تسجيل حركة الآليات</div>
       <div class="hero-perf"></div>
       <div class="hero-stats" id="hero-stats"></div>
+      <div class="hero-corner" id="out-total"></div>
     </div>
   </header>
 
@@ -876,6 +880,84 @@ function pad(n){ return String(n).padStart(2,'0'); }
 function todayKey(){ const d=new Date(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
 function nowTime(){ const d=new Date(); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; }
 
+/* ===================================================================
+   اليوم التشغيلي
+   -------------------------------------------------------------------
+   يبدأ اليوم التشغيلي الساعة DAY_START_HOUR (03:00 افتراضيًا) وينتهي
+   02:59:59 من اليوم التالي. الاشتقاق يتم وقت العرض من dateKey و departTime
+   المخزّنين أصلًا (تاريخ ميلادي + وقت)، فلا يُعدَّل أي سجل ولا أي جدول،
+   ويسري تلقائيًا بأثر رجعي على كل السجلات القديمة.
+
+   قواعد الانتماء:
+   • العملية (مغادرة) تنتمي ليوم المغادرة التشغيلي — مرة واحدة فقط.
+   • التنبيه ينتمي ليوم العودة التشغيلي، لأنه لا ينشأ إلا حين تكتمل الرحلة.
+   • «في الخارج الآن» عدّاد حالة لا عدّاد يوم: كل آلية ما زالت في الخارج تُحتسب
+     مهما كان يوم خروجها، فلا تضيع رحلة عبرت الساعة 03:00.
+   =================================================================== */
+/* OPDAY-BEGIN */
+let DAY_START_HOUR = 3;
+const OUT_TYPES = ['gabbala', 'service', 'silo', 'pump'];
+
+function shiftDateKey(key, deltaDays){
+  const p = String(key).split('-').map(Number);
+  const dt = new Date(Date.UTC(p[0], p[1]-1, p[2] + deltaDays));
+  return dt.getUTCFullYear() + '-' + pad(dt.getUTCMonth()+1) + '-' + pad(dt.getUTCDate());
+}
+
+// اليوم التشغيلي لحركة وقعت في (dateKey, time). قبل الساعة 03:00 = اليوم السابق.
+function opDayOf(dateKey, time){
+  if(!dateKey) return '';
+  if(!time) return dateKey;
+  const hh = Number(String(time).slice(0,2));
+  return (isFinite(hh) && hh < DAY_START_HOUR) ? shiftDateKey(dateKey, -1) : dateKey;
+}
+
+function currentOpDay(now){
+  const d = now || new Date();
+  return opDayOf(d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()),
+                 pad(d.getHours()) + ':' + pad(d.getMinutes()));
+}
+
+// يوم المغادرة التشغيلي للرحلة (يعتمد عليه عدّ العمليات والتقارير).
+function opDayOfEntry(e){ return opDayOf(e.dateKey, e.departTime); }
+
+// يوم العودة التشغيلي (يعتمد عليه عدّ التنبيهات). رحلة بلا بيانات عودة تعود ليوم مغادرتها.
+function opDayOfReturn(e){
+  return e.returnTime ? opDayOf(e.returnDate || e.dateKey, e.returnTime) : opDayOfEntry(e);
+}
+
+/**
+ * كل أرقام لوحة التحكم من البيانات الفعلية:
+ *   list       — العمليات (الخادم + المعلّق محليًا)
+ *   vehicleList— الآليات المسجّلة (لمعرفة النوع)
+ *   alertIds   — Set معرّفات الرحلات المتجاوزة (وقتًا أو مسافة)
+ */
+function computeDashboardStats(list, vehicleList, alertIds, now){
+  const day = currentOpDay(now);
+  const typeByName = new Map(vehicleList.map(v => [String(v.name).trim(), v.type || null]));
+
+  const todays = list.filter(e => opDayOfEntry(e) === day);
+  const customers = new Set(todays.map(e => (e.customer||'').trim()).filter(Boolean));
+  const alertsToday = list.filter(e => e.status === 'done' && alertIds.has(e.id) && opDayOfReturn(e) === day).length;
+
+  // الموجود في الخارج الآن: آلية واحدة = عدّ واحد مهما تعدّدت سجلاتها.
+  const outVehicles = new Map();
+  list.forEach(e => {
+    if(e.status !== 'out') return;
+    const n = (e.vehicle||'').trim();
+    if(n && !outVehicles.has(n)) outVehicles.set(n, typeByName.get(n) || null);
+  });
+  const outByType = { gabbala:0, service:0, silo:0, pump:0, other:0 };
+  outVehicles.forEach(t => { outByType[OUT_TYPES.includes(t) ? t : 'other']++; });
+
+  const registeredByType = { gabbala:0, service:0, silo:0, pump:0, other:0 };
+  vehicleList.forEach(v => { registeredByType[OUT_TYPES.includes(v.type) ? v.type : 'other']++; });
+
+  return { day, tripsToday: todays.length, customersToday: customers.size, alertsToday,
+           outTotal: outVehicles.size, outByType, registeredByType };
+}
+/* OPDAY-END */
+
 function escapeHtml(s){
   return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
@@ -1303,6 +1385,9 @@ async function refresh(){
   fuelSupply = data.fuelSupply || [];
   fuelBaseline = data.fuelBaseline || {};
   guestVisits = data.guestVisits || [];
+  if(Number.isInteger(data.dayStartHour) && data.dayStartHour >= 0 && data.dayStartHour <= 23){
+    DAY_START_HOUR = data.dayStartHour;
+  }
   if(data.role && data.role !== currentRole){ currentRole = data.role; applyRoleUI(); }
 }
 
@@ -1320,6 +1405,15 @@ function allEntries(){
     pendingEntries().filter(e => !closing.has(e.id))
   );
 }
+
+// انتقال اليوم التشغيلي (03:00): نعيد الرسم تلقائيًا ولو لم تتغيّر البيانات،
+// فتُصفَّر الأرقام اليومية على الشاشة المفتوحة دون تحديث الصفحة.
+let lastOpDay = null;
+setInterval(()=>{
+  const d = currentOpDay();
+  if(lastOpDay === null){ lastOpDay = d; return; }
+  if(d !== lastOpDay){ lastOpDay = d; if(currentRole){ try{ render(); }catch(err){} } }
+}, 15000);
 
 function startPolling(){
   stopPolling();
@@ -1432,24 +1526,33 @@ function renderDatalists(){
   $('dl-customers').innerHTML = uniqueSorted('customer').map(v=>`<option value="${escapeHtml(v)}">`).join('');
 }
 
-function renderHero(alertUnionSize){
-  const tk = todayKey();
-  $('today-date').textContent = new Date().toLocaleDateString('ar-EG', {weekday:'long', day:'2-digit', month:'long', year:'numeric'});
-  const src = allEntries();
-  const tripsToday = src.filter(e=>e.dateKey===tk).length;
-  const outNow = src.filter(e=>e.status==='out').length;
-  const gabbalaNames = new Set(vehicles.filter(v=>v.type==='gabbala').map(v=>v.name.trim()));
-  const gabbalaOutNow = src.filter(e=> e.status==='out' && gabbalaNames.has((e.vehicle||'').trim())).length;
+function renderHero(alertIds){
+  const st = computeDashboardStats(allEntries(), vehicles, alertIds || new Set());
+  // نعرض تاريخ اليوم التشغيلي (قبل 03:00 يكون ما زال اليوم السابق).
+  $('today-date').textContent =
+    new Date(st.day + 'T12:00:00').toLocaleDateString('ar-EG', {weekday:'long', day:'2-digit', month:'long', year:'numeric'})
+    + ' — اليوم التشغيلي (يبدأ ' + pad(DAY_START_HOUR) + ':00)';
+
+  // إجمالي الآليات في الخارج الآن: جملة في الزاوية السفلية للوحة، لا بطاقة.
+  $('out-total').innerHTML = `إجمالي الآليات في الخارج الآن: <b>${st.outTotal}</b>`;
+
+  const typeCard = (label, key) =>
+    `<div class="kpi"><span class="n">${st.outByType[key]}/${st.registeredByType[key]}</span><span class="l">${label}</span></div>`;
 
   const cards = [
-    `<div class="kpi"><span class="n">${tripsToday}</span><span class="l">عمليات اليوم</span></div>`,
-    `<div class="kpi out-kpi"><span class="n">${outNow}</span><span class="l">في الخارج الآن</span></div>`,
-    `<div class="kpi"><span class="n">${gabbalaOutNow}/${gabbalaNames.size}</span><span class="l">جبالات بالخارج</span></div>`
+    `<div class="kpi"><span class="n">${st.tripsToday}</span><span class="l">عمليات اليوم التشغيلي</span></div>`,
+    typeCard('الجبالات في الخارج الآن', 'gabbala'),
+    typeCard('سيارات الخدمة في الخارج الآن', 'service'),
+    typeCard('السيلوهات في الخارج الآن', 'silo'),
+    typeCard('المضخات في الخارج الآن', 'pump')
   ];
+  // آليات بلا نوع مسجّل: تُحسب في الإجمالي ولا نفترض لها نوعًا.
+  if(st.outByType.other > 0){
+    cards.push(`<div class="kpi warn-kpi"><span class="n">${st.outByType.other}</span><span class="l">في الخارج — بلا نوع مسجّل</span></div>`);
+  }
   if(currentRole === 'fleet_manager' || currentRole === 'admin'){
-    const customers = new Set(entries.map(e=>(e.customer||'').trim()).filter(Boolean)).size;
-    cards.push(`<div class="kpi"><span class="n">${customers}</span><span class="l">زبون</span></div>`);
-    cards.push(`<div class="kpi alert-kpi"><span class="n">${alertUnionSize}</span><span class="l">تنبيهات نشطة</span></div>`);
+    cards.push(`<div class="kpi"><span class="n">${st.customersToday}</span><span class="l">عداد الزبائن اليومي</span></div>`);
+    cards.push(`<div class="kpi alert-kpi"><span class="n">${st.alertsToday}</span><span class="l">تنبيهات نشطة اليوم التشغيلي</span></div>`);
   }else{
     cards.push(`<div class="kpi"><span class="n">${vehicles.length}</span><span class="l">آلية مسجّلة</span></div>`);
   }
@@ -2117,10 +2220,10 @@ function pumpedQtyByCustomer(list){
 // خدمته تلك المضخة بذلك الشهر — زبون خدمته مضختان مختلفتان بنفس الشهر يُحسب
 // له كامل كميته لكل واحدة (حد معروف ومقصود لمطابقة الاسم فقط، لا توقيت).
 function pumpMonthlyReport(done){
-  const months = new Set(done.map(e=>(e.dateKey||'').slice(0,7)).filter(Boolean));
+  const months = new Set(done.map(e=>opDayOfEntry(e).slice(0,7)).filter(Boolean));
   const rows = [];
   months.forEach(month=>{
-    const monthEntries = done.filter(e=>(e.dateKey||'').slice(0,7)===month);
+    const monthEntries = done.filter(e=>opDayOfEntry(e).slice(0,7)===month);
     const byCustomer = pumpedQtyByCustomer(monthEntries);
     const byPump = {};
     monthEntries.forEach(e=>{
@@ -2153,7 +2256,7 @@ function gateVsFuelKmReport(){
 
 function renderReports(timeIds, distIds){
   const doneAll = entries.filter(e=>e.status==='done');
-  const done = filterByDateRange(doneAll, e=>e.dateKey);
+  const done = filterByDateRange(doneAll, e=>opDayOfEntry(e));
 
   const union = done.filter(e=> timeIds.has(e.id) || distIds.has(e.id))
                     .sort((a,b)=> getDepartDateTime(b)-getDepartDateTime(a));
@@ -2296,18 +2399,18 @@ function renderMonthlyReports(done){
     { label:'إجمالي كمية الصب', value:r=>r.loadQty.toFixed(1) }
   ];
   $('report-monthly-customers').innerHTML =
-    monthlyTable(groupMonthly(done, e=>e.dateKey, e=>e.customer, granularity), 'الزبون', qtyCols, periodLabel, 'التقرير الدوري — الزبائن وكميات الصب');
+    monthlyTable(groupMonthly(done, e=>opDayOfEntry(e), e=>e.customer, granularity), 'الزبون', qtyCols, periodLabel, 'التقرير الدوري — الزبائن وكميات الصب');
   $('report-monthly-drivers').innerHTML =
-    monthlyTable(groupMonthly(done, e=>e.dateKey, e=>e.driver, granularity), 'السائق', qtyCols, periodLabel, 'التقرير الدوري — السائقون');
+    monthlyTable(groupMonthly(done, e=>opDayOfEntry(e), e=>e.driver, granularity), 'السائق', qtyCols, periodLabel, 'التقرير الدوري — السائقون');
   $('report-monthly-vehicles').innerHTML =
-    monthlyTable(groupMonthly(done, e=>e.dateKey, e=>e.vehicle, granularity), 'الآلية', qtyCols, periodLabel, 'التقرير الدوري — الآليات');
+    monthlyTable(groupMonthly(done, e=>opDayOfEntry(e), e=>e.vehicle, granularity), 'الآلية', qtyCols, periodLabel, 'التقرير الدوري — الآليات');
 
   // استهلاك المازوت دوريًا لكل آلية، مقابل كيلومتراتها الفعلية من سجل الرحلات
   // (المسافة _distance محسوبة أصلًا في enrichEntries لكل رحلة مكتملة).
-  const fuelFillsInRange = filterByDateRange(fuelFills, f=>f.dateKey);
+  const fuelFillsInRange = filterByDateRange(fuelFills, f=>opDayOf(f.dateKey, f.time));
   const fuelByPeriodVehicle = {};
   fuelFillsInRange.forEach(f=>{
-    const dateKey = f.dateKey||'';
+    const dateKey = opDayOf(f.dateKey, f.time);
     const period = granularity === 'day' ? dateKey : dateKey.slice(0,7);
     const vehicle = (f.vehicle||'').trim();
     if(!period || !vehicle) return;
@@ -2316,7 +2419,7 @@ function renderMonthlyReports(done){
     fuelByPeriodVehicle[key].qty += Number(f.qty) || 0;
   });
   done.forEach(e=>{
-    const dateKey = e.dateKey||'';
+    const dateKey = opDayOfEntry(e);
     const period = granularity === 'day' ? dateKey : dateKey.slice(0,7);
     const vehicle = (e.vehicle||'').trim();
     if(!period || !vehicle) return;
@@ -2348,7 +2451,7 @@ function renderSetupTab(){
 // يومي — الطلب الأصلي كان شهريًا فقط)، فوق نفس أدوات groupMonthly/pumpMonthlyReport.
 function renderHrTab(){
   const done = entries.filter(e=>e.status==='done');
-  $('report-hr-drivers').innerHTML = monthlyTable(groupMonthly(done, e=>e.dateKey, e=>e.driver, 'month'), 'السائق', [
+  $('report-hr-drivers').innerHTML = monthlyTable(groupMonthly(done, e=>opDayOfEntry(e), e=>e.driver, 'month'), 'السائق', [
     { label:'عدد الرحلات', value:r=>r.trips },
     { label:'إجمالي كمية الصب', value:r=>r.loadQty.toFixed(1) }
   ], 'الشهر', 'التقرير الشهري — السائقون وكميات الصب');
@@ -2365,7 +2468,7 @@ function render(){
     timeIds = alertIdsBy('_durationMin', Number($('pct-threshold').value || 20));
     distIds = alertIdsBy('_distance',    Number($('pct-threshold-dist').value || 20));
   }
-  renderHero(new Set([...timeIds, ...distIds]).size);
+  renderHero(new Set([...timeIds, ...distIds]));
   renderDatalists();
 
   if(currentRole === 'gate'){

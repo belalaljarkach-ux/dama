@@ -268,6 +268,7 @@ async function route(req, res, url) {
       fuelBaseline: Object.fromEntries(await Promise.all(TANKS.map(async t => [t, await db.getFuelBaseline(t)]))),
       guestVisits: await db.listGuestVisits(days),
       windowDays: days,
+      dayStartHour: config.dayStartHour,
       serverTime: new Date().toISOString()
     });
   }
