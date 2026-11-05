@@ -108,6 +108,22 @@
   .tab-panel{display:none;}
   .tab-panel.active{display:block;}
 
+  /* ---- التبويبات الفرعية للتقارير والتنبيهات ---- */
+  .subtabs{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;}
+  .subtab{
+    font-family:inherit;font-size:13px;font-weight:700;color:var(--ink-soft);
+    background:var(--surface);border:1px solid var(--line);border-radius:20px;
+    padding:8px 14px;cursor:pointer;
+  }
+  .subtab.active{color:var(--accent-ink);background:var(--accent);border-color:var(--accent);}
+  .subtab.rp-extra{border-style:dashed;}
+  .rp-panel{display:none;}
+  .rp-panel.active{display:block;}
+  .rp-bar{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px 16px;align-items:end;}
+  .rp-bar .rp-actions{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;}
+  .rp-meta{font-size:12px;color:var(--ink-soft);margin:10px 0 0;}
+  .rp-body{margin-top:14px;}
+
   /* ---- البطاقات والنماذج ---- */
   .card{
     background:var(--surface);border:1px solid var(--line);
@@ -471,63 +487,10 @@
     </div>
   </section>
 
-  <!-- ---------------- تبويب المدير: التقارير ---------------- -->
+  <!-- ---------------- تبويب المدير: التقارير والتنبيهات ---------------- -->
   <section class="tab-panel" id="tab-reports">
-    <div class="card">
-      <h2>نطاق التقرير</h2>
-      <div class="form-grid">
-        <div class="field">
-          <label for="rep-from">من تاريخ</label>
-          <input type="date" id="rep-from">
-        </div>
-        <div class="field">
-          <label for="rep-to">إلى تاريخ</label>
-          <input type="date" id="rep-to">
-        </div>
-        <div class="field">
-          <label for="rep-granularity">تجميع الجداول الدورية</label>
-          <select id="rep-granularity">
-            <option value="month">شهري</option>
-            <option value="day">يومي</option>
-          </select>
-        </div>
-      </div>
-      <p class="search-meta" style="margin-top:0">اتركهما فارغين لعرض كل البيانات المتاحة ضمن نافذة العرض الحالية. يشمل النطاق كل التقارير أدناه.</p>
-    </div>
-
-    <div class="card">
-      <h2>معايير التنبيه</h2>
-      <div class="pct-control">
-        <label for="pct-threshold">تجاوز في الوقت عن المتوسط بنسبة:</label>
-        <input type="number" id="pct-threshold" value="20" min="0" max="300"><span>%</span>
-      </div>
-      <div class="pct-control">
-        <label for="pct-threshold-dist">تجاوز في المسافة عن المتوسط بنسبة:</label>
-        <input type="number" id="pct-threshold-dist" value="20" min="0" max="300"><span>%</span>
-      </div>
-      <div id="alerts-panel"></div>
-    </div>
-    <div class="card">
-      <h2>تقرير الآليات</h2>
-      <div class="search-wrap"><input type="search" id="report-vehicles-search" placeholder="ابحث باسم الآلية…" autocomplete="off"></div>
-      <div id="report-vehicles"></div>
-    </div>
-    <div class="card">
-      <h2>تقرير السائقين</h2>
-      <div class="search-wrap"><input type="search" id="report-drivers-search" placeholder="ابحث باسم السائق…" autocomplete="off"></div>
-      <div id="report-drivers"></div>
-    </div>
-    <div class="card"><h2>تقرير الزبائن — مقارنة الآليات</h2><div id="report-customers"></div></div>
-    <div class="card"><h2>تقرير المضخات — الكمية المضخوخة (مطابقة باسم الزبون)</h2>
-      <p class="search-meta" style="margin-top:0">الكمية المحسوبة لكل مضخة هي مجموع كميات تحميل الجبالات لكل زبون مميّز خدمته تلك المضخة بنفس الفترة — زبون خدمته مضختان مختلفتان تُحسب له كميته الكاملة لكل واحدة.</p>
-      <div id="report-pumps"></div>
-    </div>
-    <div class="card"><h2>مقارنة كيلومترات البوابة والمازوت</h2><div id="report-km-compare"></div></div>
-
-    <div class="card"><h2>التقرير الدوري — الزبائن وكميات الصب</h2><div id="report-monthly-customers"></div></div>
-    <div class="card"><h2>التقرير الدوري — السائقون</h2><div id="report-monthly-drivers"></div></div>
-    <div class="card"><h2>التقرير الدوري — الآليات</h2><div id="report-monthly-vehicles"></div></div>
-    <div class="card"><h2>التقرير الدوري — استهلاك المازوت مقابل الكيلومتر</h2><div id="report-monthly-fuel"></div></div>
+    <div class="subtabs" id="rp-subtabs" role="tablist" aria-label="التقارير والتنبيهات"></div>
+    <div id="rp-panels"></div>
   </section>
 
   <!-- ---------------- تبويب المازوت ---------------- -->
@@ -1412,7 +1375,7 @@ let lastOpDay = null;
 setInterval(()=>{
   const d = currentOpDay();
   if(lastOpDay === null){ lastOpDay = d; return; }
-  if(d !== lastOpDay){ lastOpDay = d; if(currentRole){ try{ render(); }catch(err){} } }
+  if(d !== lastOpDay){ lastOpDay = d; if(currentRole){ try{ render(); rpOnRollover(); }catch(err){} } }
 }, 15000);
 
 function startPolling(){
@@ -1423,7 +1386,7 @@ function startPolling(){
     if(openReturnId) return;                             // ولا إدخال عودة مفتوحًا
     // رفع المعلّق أولًا: بيانات الخادم بلا سجلاتنا المعلّقة صورة ناقصة.
     if(outbox.length){ await flushOutbox(); return; }
-    try{ await refresh(); render(); }
+    try{ await refresh(); render(); rpAutoRefresh(); }
     catch(err){ /* الشارة تعرض حالة الاتصال؛ لا نزعج المستخدم بنافذة */ }
   }, 8000);
 
@@ -2183,23 +2146,453 @@ async function submitFuelSupply(ev){
   }
 }
 
-// نطاق التاريخ المخصّص لتبويب التقارير: فارغ يعني كل البيانات المتاحة ضمن
-// نافذة العرض الحالية (windowDays من السيرفر)، وليس "بلا حدود" مطلقًا.
-function reportDateRange(){
-  return { from: $('rep-from').value || null, to: $('rep-to').value || null };
-}
-function filterByDateRange(list, dateKeyOf){
-  const { from, to } = reportDateRange();
-  if(!from && !to) return list;
-  return list.filter(item=>{
-    const k = dateKeyOf(item);
-    if(!k) return false;
-    if(from && k < from) return false;
-    if(to && k > to) return false;
-    return true;
+/* ===================================================================
+   التقارير والتنبيهات — تبويبات فرعية، كلٌّ بفلاتره، والبيانات من
+   /api/reports/period للفترة المطلوبة وحدها (الافتراضي: اليوم التشغيلي الحالي).
+   =================================================================== */
+/* RPT-BEGIN */
+const RP_TABS = [
+  { key:'pumps',        title:'تقرير المضخات – كمية الضخ (مطابقة باسم الزبون)', short:'تقرير المضخات',
+    fields:['vehicle','customer'], labels:{ vehicle:'اسم المضخة' }, gran:true },
+  { key:'m-customers',  title:'التقرير الدوري – الزبائن وكميات الصب', short:'الدوري – الزبائن', fields:['customer'], gran:true },
+  { key:'m-drivers',    title:'التقرير الدوري – السائقون', short:'الدوري – السائقون', fields:['driver'], gran:true },
+  { key:'m-vehicles',   title:'التقرير الدوري – الآليات', short:'الدوري – الآليات', fields:['vehicle'], gran:true },
+  { key:'m-fuel',       title:'التقرير الدوري – استهلاك المازوت مقابل الكيلومترات', short:'الدوري – المازوت والكيلومترات',
+    fields:['vehicle'], gran:true },
+  { key:'vehicles',     title:'تقرير الآليات', short:'تقرير الآليات', fields:['vehicle'] },
+  { key:'alerts',       title:'التنبيهات', short:'التنبيهات', fields:['vehicle','customer'], alertType:true },
+  // تقارير قائمة سابقًا وغير مذكورة في الترتيب المطلوب: بقيت كتبويبات إضافية بعد التنبيهات.
+  { key:'x-customers',  title:'تقرير الزبائن – مقارنة الآليات', short:'تقرير الزبائن', fields:['customer'], extra:true },
+  { key:'x-drivers',    title:'تقرير السائقين', short:'تقرير السائقين', fields:['driver'], extra:true },
+  { key:'x-km',         title:'مقارنة كيلومترات البوابة والمازوت', short:'مقارنة الكيلومترات', fields:['vehicle'], extra:true }
+];
+const RP_PRESETS = [
+  ['today','اليوم الحالي'], ['yesterday','أمس'], ['last7','آخر 7 أيام'],
+  ['last30','آخر 30 يومًا'], ['day','يوم محدد'], ['range','من – إلى']
+];
+const RP_FIELD_LABEL = { vehicle:'الآلية (رقم/اسم)', customer:'اسم الزبون', driver:'اسم السائق' };
+const RP_EMPTY = '<p class="empty">لا توجد نتائج للفترة أو المعايير المحددة.</p>';
+
+let rpActive = 'pumps';
+let rpBuilt = false;
+const rpData = {};   // key -> { data, per, at }
+const rpRun  = {};   // key -> رقم الطلب الأخير (لتجاهل ردٍّ متأخر)
+const rpCache = new Map();
+
+function rpEl(k, name){ return document.getElementById('rp-' + k + '-' + name); }
+
+function rpBuild(){
+  if(rpBuilt) return;
+  rpBuilt = true;
+  const today = currentOpDay();
+  $('rp-subtabs').innerHTML = RP_TABS.map(t =>
+    `<button type="button" class="subtab${t.extra?' rp-extra':''}" data-rp="${t.key}" role="tab">${escapeHtml(t.short)}</button>`).join('');
+  $('rp-panels').innerHTML = RP_TABS.map(t => {
+    const k = t.key;
+    const fields = t.fields.map(f => `
+      <div class="field"><label for="rp-${k}-${f}">${escapeHtml((t.labels && t.labels[f]) || RP_FIELD_LABEL[f])}</label>
+        <input type="search" id="rp-${k}-${f}" autocomplete="off" placeholder="بحث…"></div>`).join('');
+    const gran = t.gran ? `
+      <div class="field"><label for="rp-${k}-gran">تجميع الجدول</label>
+        <select id="rp-${k}-gran"><option value="auto">تلقائي</option><option value="day">يومي</option><option value="month">شهري</option></select></div>` : '';
+    const atype = t.alertType ? `
+      <div class="field"><label for="rp-${k}-atype">نوع التنبيه</label>
+        <select id="rp-${k}-atype"><option value="all">الكل</option><option value="time">تجاوز وقت</option><option value="dist">تجاوز مسافة</option></select></div>` : '';
+    const pct = t.alertType ? `
+      <div class="pct-control" style="margin-top:14px">
+        <label for="pct-threshold">تجاوز في الوقت عن المتوسط بنسبة:</label>
+        <input type="number" id="pct-threshold" value="20" min="0" max="300"><span>%</span>
+      </div>
+      <div class="pct-control">
+        <label for="pct-threshold-dist">تجاوز في المسافة عن المتوسط بنسبة:</label>
+        <input type="number" id="pct-threshold-dist" value="20" min="0" max="300"><span>%</span>
+      </div>` : '';
+    return `<div class="rp-panel" id="rp-panel-${k}" data-rp="${k}">
+      <div class="card">
+        <div class="card-head"><h2>${escapeHtml(t.title)}</h2></div>
+        <div class="rp-bar">
+          <div class="field"><label for="rp-${k}-preset">الفترة</label>
+            <select id="rp-${k}-preset">${RP_PRESETS.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></div>
+          <div class="field" id="rp-${k}-day-wrap" hidden><label for="rp-${k}-day">التاريخ</label>
+            <input type="date" id="rp-${k}-day" value="${today}"></div>
+          <div class="field" id="rp-${k}-from-wrap" hidden><label for="rp-${k}-from">من تاريخ</label>
+            <input type="date" id="rp-${k}-from" value="${today}"></div>
+          <div class="field" id="rp-${k}-to-wrap" hidden><label for="rp-${k}-to">إلى تاريخ</label>
+            <input type="date" id="rp-${k}-to" value="${today}"></div>
+          ${fields}${atype}${gran}
+          <div class="rp-actions">
+            <button type="button" class="btn-primary btn-sm" data-rp-act="apply" data-rp="${k}">بحث / تطبيق</button>
+            <button type="button" class="btn-ghost btn-sm" data-rp-act="clear" data-rp="${k}">مسح الفلاتر</button>
+            <button type="button" class="btn-ghost btn-sm" data-rp-act="refresh" data-rp="${k}">تحديث</button>
+          </div>
+        </div>
+        ${pct}
+        <p class="rp-meta" id="rp-${k}-meta"></p>
+        <div class="rp-body" id="rp-${k}-body"><p class="empty">اختر هذا التبويب لعرض البيانات.</p></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  $('rp-subtabs').addEventListener('click', ev => {
+    const b = ev.target.closest('.subtab'); if(b) rpActivate(b.dataset.rp);
+  });
+  $('rp-panels').addEventListener('click', ev => {
+    const b = ev.target.closest('[data-rp-act]'); if(!b) return;
+    const k = b.dataset.rp, act = b.dataset.rpAct;
+    if(act === 'clear') rpClear(k);
+    else rpLoad(k, true);          // تطبيق أو تحديث: إعادة قراءة من قاعدة البيانات
+  });
+  $('rp-panels').addEventListener('change', ev => {
+    const id = ev.target.id || '';
+    let m = /^rp-(.+)-(preset|day|from|to)$/.exec(id);
+    if(m){ if(m[2] === 'preset') rpSyncDateFields(m[1]); rpLoad(m[1], false); return; }
+    m = /^rp-(.+)-(gran|atype)$/.exec(id);
+    if(m) rpRender(m[1]);
+  });
+  let typingTimer = null;
+  $('rp-panels').addEventListener('input', ev => {
+    const m = /^rp-(.+)-(vehicle|customer|driver)$/.exec(ev.target.id || '');
+    if(!m) return;
+    clearTimeout(typingTimer);
+    typingTimer = setTimeout(() => rpRender(m[1]), 150);   // البحث النصي على بيانات الفترة المحمّلة
+  });
+  $('rp-panels').addEventListener('keydown', ev => {
+    if(ev.key !== 'Enter') return;
+    const m = /^rp-(.+)-(vehicle|customer|driver)$/.exec(ev.target.id || '');
+    if(m){ ev.preventDefault(); rpLoad(m[1], true); }
   });
 }
-function reportGranularity(){ return $('rep-granularity').value === 'day' ? 'day' : 'month'; }
+
+function rpSyncDateFields(k){
+  const p = rpEl(k,'preset').value;
+  rpEl(k,'day-wrap').hidden  = p !== 'day';
+  rpEl(k,'from-wrap').hidden = p !== 'range';
+  rpEl(k,'to-wrap').hidden   = p !== 'range';
+}
+
+function rpClear(k){
+  const t = RP_TABS.find(x => x.key === k);
+  const today = currentOpDay();
+  rpEl(k,'preset').value = 'today';
+  rpEl(k,'day').value = today; rpEl(k,'from').value = today; rpEl(k,'to').value = today;
+  t.fields.forEach(f => { rpEl(k,f).value = ''; });
+  if(t.gran) rpEl(k,'gran').value = 'auto';
+  if(t.alertType) rpEl(k,'atype').value = 'all';
+  rpSyncDateFields(k);
+  rpLoad(k, true);
+}
+
+function rpRead(k){
+  const t = RP_TABS.find(x => x.key === k);
+  const v = n => { const el = rpEl(k,n); return el ? el.value : ''; };
+  const q = {};
+  t.fields.forEach(f => { q[f] = normalizeSearch(v(f)); });
+  return { preset: v('preset') || 'today', day: v('day'), from: v('from'), to: v('to'),
+           gran: v('gran') || 'auto', atype: v('atype') || 'all', q };
+}
+
+function rpPeriod(s){
+  const t = currentOpDay();
+  switch(s.preset){
+    case 'yesterday': { const d = shiftDateKey(t,-1); return { from:d, to:d }; }
+    case 'last7':     return { from: shiftDateKey(t,-6),  to: t };
+    case 'last30':    return { from: shiftDateKey(t,-29), to: t };
+    case 'day':       { const d = s.day || t; return { from:d, to:d }; }
+    case 'range':     return { from: s.from || s.to || t, to: s.to || s.from || t };
+    default:          return { from:t, to:t };
+  }
+}
+
+function rpSpanDays(per){
+  const a = per.from.split('-').map(Number), b = per.to.split('-').map(Number);
+  return Math.round((Date.UTC(b[0],b[1]-1,b[2]) - Date.UTC(a[0],a[1]-1,a[2])) / 86400000) + 1;
+}
+
+async function rpFetch(from, to, force){
+  const key = from + '|' + to;
+  const c = rpCache.get(key);
+  if(!force && c && Date.now() - c.at < 15000) return c;
+  const data = await api('GET', `/api/reports/period?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+  const rec = { data, at: Date.now() };
+  rpCache.set(key, rec);
+  if(rpCache.size > 8) rpCache.delete(rpCache.keys().next().value);
+  return rec;
+}
+
+async function rpLoad(k, force, silent){
+  const s = rpRead(k);
+  const per = rpPeriod(s);
+  const body = rpEl(k,'body'), meta = rpEl(k,'meta');
+  if(per.from > per.to){
+    delete rpData[k];
+    meta.textContent = '';
+    body.innerHTML = '<p class="empty">تاريخ البداية أحدث من تاريخ النهاية.</p>';
+    return;
+  }
+  const token = (rpRun[k] || 0) + 1; rpRun[k] = token;
+  if(!silent) body.innerHTML = '<p class="empty">جارٍ التحميل…</p>';
+  try{
+    const rec = await rpFetch(per.from, per.to, force);
+    if(rpRun[k] !== token) return;
+    rpData[k] = { data: rec.data, per, at: rec.at };
+    rpRender(k);
+  }catch(err){
+    if(rpRun[k] !== token) return;
+    delete rpData[k];
+    meta.textContent = '';
+    body.innerHTML = `<p class="empty">تعذّر تحميل التقرير: ${escapeHtml(err && err.message || 'خطأ غير معروف')}</p>`;
+  }
+}
+
+function rpActivate(k){
+  rpActive = k;
+  document.querySelectorAll('#rp-subtabs .subtab').forEach(b => b.classList.toggle('active', b.dataset.rp === k));
+  document.querySelectorAll('.rp-panel').forEach(p => p.classList.toggle('active', p.dataset.rp === k));
+  rpSyncDateFields(k);
+  rpLoad(k, true);                 // الدخول إلى التبويب = قراءة حديثة من قاعدة البيانات
+}
+function rpEnter(){ if(rpBuilt) rpActivate(rpActive); }
+function rpTabVisible(){ const p = $('tab-reports'); return !!(p && p.classList.contains('active')); }
+function rpRenderActive(){ if(rpBuilt && rpTabVisible() && rpData[rpActive]) rpRender(rpActive); }
+
+// فترة تضم اليوم الحالي تتجدد تلقائيًا مع دورات الاستطلاع (بلا وميض «جارٍ التحميل»).
+function rpAutoRefresh(){
+  if(!rpBuilt || !rpTabVisible()) return;
+  const d = rpData[rpActive];
+  if(!d || Date.now() - d.at < 30000) return;
+  if(d.per.to >= currentOpDay()) rpLoad(rpActive, true, true);
+}
+// عند انتقال اليوم التشغيلي (03:00): ما كان «اليوم» صار يومًا آخر.
+function rpOnRollover(){
+  rpCache.clear();
+  if(rpBuilt && rpTabVisible()) rpLoad(rpActive, true, true);
+}
+
+function rpGranularity(s, per){
+  if(s.gran === 'day' || s.gran === 'month') return s.gran;
+  return rpSpanDays(per) <= 31 ? 'day' : 'month';
+}
+
+function rpFlags(data){
+  const pctT = Number($('pct-threshold').value || 20);
+  const pctD = Number($('pct-threshold-dist').value || 20);
+  const timeIds = new Set(), distIds = new Set();
+  data.trips.forEach(t => {
+    const b = data.baselines[(t.customer || '').trim()];
+    if(!b) return;
+    if(b.nT >= 2 && b.avgT !== null && t._durationMin !== null && t._durationMin !== undefined
+       && t._durationMin > b.avgT * (1 + pctT/100)) timeIds.add(t.id);
+    if(b.nD >= 2 && b.avgD !== null && t._distance !== null && t._distance !== undefined
+       && t._distance > b.avgD * (1 + pctD/100)) distIds.add(t.id);
+  });
+  return { timeIds, distIds };
+}
+
+function rpMatch(term, value){ return !term || matchesSearch(term, value || ''); }
+
+function rpPeriodOf(gran){
+  return e => { const d = opDayOfEntry(e); return gran === 'day' ? d : d.slice(0,7); };
+}
+
+function rpRender(k){
+  const rec = rpData[k]; if(!rec) return;
+  const t = RP_TABS.find(x => x.key === k);
+  const s = rpRead(k);
+  const { data, per } = rec;
+  const q = s.q;
+  const gran = rpGranularity(s, per);
+  const periodLabel = gran === 'day' ? 'اليوم' : 'الشهر';
+  const { timeIds, distIds } = rpFlags(data);
+
+  // رحلات الفترة بمقياس يوم المغادرة التشغيلي، ثم تصفية المعايير النصية
+  // (المضخات والمقارنة لها تصفيتها الخاصة داخل حسابها).
+  const byDepart = data.trips.filter(e => e.opDay >= per.from && e.opDay <= per.to);
+  const done = byDepart.filter(e => rpMatch(q.customer, e.customer) && rpMatch(q.driver, e.driver) && rpMatch(q.vehicle, e.vehicle));
+
+  const span = per.from === per.to ? per.from : `${per.from} ← ${per.to}`;
+  const hh = String(DAY_START_HOUR).padStart(2,'0');
+  const setMeta = txt => { rpEl(k,'meta').textContent = `الفترة: ${span} · اليوم التشغيلي يبدأ ${hh}:00` + (txt ? ' · ' + txt : ''); };
+  const body = rpEl(k,'body');
+  const qtyCols = [
+    { label:'عدد الرحلات', value:r=>r.trips },
+    { label:'إجمالي كمية الصب', value:r=>r.loadQty.toFixed(1) }
+  ];
+
+  switch(k){
+    case 'pumps': {
+      const rows = pumpMonthlyReport(byDepart, rpPeriodOf(gran), { pump:q.vehicle, customer:q.customer });
+      setMeta(`${rows.length} صف`);
+      body.innerHTML = monthlyTable(rows, 'المضخة', [
+        { label:'عدد الرحلات', value:r=>r.trips },
+        { label:'عدد الزبائن', value:r=>r.customers },
+        { label:'الكمية المضخوخة المحسوبة', value:r=>r.qty.toFixed(1) }
+      ], periodLabel, 'تقرير المضخات — الكمية المضخوخة');
+      break;
+    }
+    case 'm-customers':
+      setMeta(`${done.length} رحلة مكتملة`);
+      body.innerHTML = monthlyTable(groupMonthly(done, e=>opDayOfEntry(e), e=>e.customer, gran), 'الزبون', qtyCols, periodLabel, 'التقرير الدوري — الزبائن وكميات الصب');
+      break;
+    case 'm-drivers':
+      setMeta(`${done.length} رحلة مكتملة`);
+      body.innerHTML = monthlyTable(groupMonthly(done, e=>opDayOfEntry(e), e=>e.driver, gran), 'السائق', qtyCols, periodLabel, 'التقرير الدوري — السائقون');
+      break;
+    case 'm-vehicles':
+      setMeta(`${done.length} رحلة مكتملة`);
+      body.innerHTML = monthlyTable(groupMonthly(done, e=>opDayOfEntry(e), e=>e.vehicle, gran), 'الآلية', qtyCols, periodLabel, 'التقرير الدوري — الآليات');
+      break;
+    case 'm-fuel': {
+      const periodOf = rpPeriodOf(gran);
+      const by = {};
+      data.fuelFills.filter(f => rpMatch(q.vehicle, f.vehicle)).forEach(f => {
+        const period = periodOf({ dateKey:f.opDay });
+        const vehicle = (f.vehicle || '').trim();
+        if(!period || !vehicle) return;
+        const key = period + '|' + vehicle;
+        by[key] = by[key] || { month:period, key:vehicle, qty:0, km:0 };
+        by[key].qty += Number(f.qty) || 0;
+      });
+      done.forEach(e => {
+        const key = periodOf(e) + '|' + (e.vehicle || '').trim();
+        if(by[key]) by[key].km += e._distance || 0;   // لا صف بلا مازوت مسجّل بتلك الفترة
+      });
+      const rows = Object.values(by);
+      setMeta(`${rows.length} صف`);
+      body.innerHTML = monthlyTable(rows, 'الآلية', [
+        { label:'كمية المازوت المستهلكة', value:r=>r.qty.toFixed(1) },
+        { label:'إجمالي الكيلومترات', value:r=>r.km.toFixed(1) },
+        { label:'معدل الاستهلاك (لتر/١٠٠كم)', value:r=> r.km>0 ? (r.qty/r.km*100).toFixed(1) : '—' }
+      ], periodLabel, 'التقرير الدوري — استهلاك المازوت مقابل الكيلومتر');
+      break;
+    }
+    case 'vehicles':
+      setMeta(`${done.length} رحلة مكتملة`);
+      body.innerHTML = rpGroupedTrips(done, 'vehicle', 'السائق', 'driver', timeIds, distIds);
+      break;
+    case 'x-drivers':
+      setMeta(`${done.length} رحلة مكتملة`);
+      body.innerHTML = rpGroupedTrips(done, 'driver', 'الآلية', 'vehicle', timeIds, distIds);
+      break;
+    case 'x-customers':
+      setMeta(`${done.length} رحلة مكتملة`);
+      body.innerHTML = rpCustomersCompare(done, timeIds, distIds);
+      break;
+    case 'x-km': {
+      const rows = rpKmCompare(byDepart, data.fuelFills, q.vehicle);
+      setMeta(`${rows.length} آلية — أعلى قراءة ضمن الفترة`);
+      body.innerHTML = rows.length === 0 ? RP_EMPTY :
+        `<div class="table-wrap"><table><thead><tr>
+          <th>الآلية</th><th>آخر كم من سجل البوابة</th><th>آخر كم من سجل المازوت</th><th>الفرق</th>
+        </tr></thead><tbody>${rows.map(r=>`<tr class="${r.diff!==null && Math.abs(r.diff)>50 ? 'is-alert':''}">
+          <td class="veh-cell">${escapeHtml(r.vehicle)}</td><td>${r.gateLast??'—'}</td><td>${r.fuelLast??'—'}</td>
+          <td>${r.diff===null?'—':r.diff.toFixed(1)}</td></tr>`).join('')}</tbody></table></div>
+          ${pdfButton('مقارنة كيلومترات البوابة والمازوت', ['الآلية','آخر كم من سجل البوابة','آخر كم من سجل المازوت','الفرق'],
+            rows.map(r=>[r.vehicle, r.gateLast??'—', r.fuelLast??'—', r.diff===null?'—':r.diff.toFixed(1)]))}`;
+      break;
+    }
+    case 'alerts': {
+      // التنبيه يتبع يوم عودة الرحلة التشغيلي، لا يوم مغادرتها (نفس قاعدة لوحة التحكم).
+      let list = data.trips.filter(e => e.returnOpDay >= per.from && e.returnOpDay <= per.to
+                                     && (timeIds.has(e.id) || distIds.has(e.id)));
+      if(s.atype === 'time') list = list.filter(e => timeIds.has(e.id));
+      if(s.atype === 'dist') list = list.filter(e => distIds.has(e.id));
+      list = list.filter(e => rpMatch(q.vehicle, e.vehicle) && rpMatch(q.customer, e.customer));
+      const nT = list.filter(e => timeIds.has(e.id)).length, nD = list.filter(e => distIds.has(e.id)).length;
+      setMeta(`${list.length} رحلة متجاوزة (وقت: ${nT} · مسافة: ${nD})`);
+      body.innerHTML = list.length === 0
+        ? '<p class="empty">لا توجد تنبيهات للفترة أو المعايير المحددة.</p>'
+        : list.map(e => {
+            const tags = [];
+            if(timeIds.has(e.id)) tags.push('<span class="badge badge-alert">تجاوز وقت</span>');
+            if(distIds.has(e.id)) tags.push('<span class="badge badge-warn">تجاوز مسافة</span>');
+            return `<div class="alert-row">
+              <span>${escapeHtml(e.vehicle)} — ${escapeHtml(e.driver)} — ${escapeHtml(e.customer)} ${tags.join(' ')}</span>
+              <span>${fmtDuration(e._durationMin)} · ${fmtDistance(e._distance, e)} (${e.dateKey} ${fmtTime12(e.departTime)} · يوم العودة التشغيلي ${e.returnOpDay})</span>
+            </div>`;
+          }).join('') + pdfButton('التنبيهات', ['الآلية','السائق','الزبون','النوع','المدة','المسافة','المغادرة','يوم العودة'],
+            list.map(e => [e.vehicle, e.driver, e.customer,
+              [timeIds.has(e.id)?'وقت':'', distIds.has(e.id)?'مسافة':''].filter(Boolean).join(' + '),
+              fmtDuration(e._durationMin), fmtDistance(e._distance, e), `${e.dateKey} ${fmtTime12(e.departTime)}`, e.returnOpDay]));
+      break;
+    }
+  }
+}
+
+function rpGroupedTrips(done, field, otherCol, otherField, timeIds, distIds){
+  const g = {};
+  done.forEach(e => { const k = (e[field] || '').trim(); (g[k] = g[k] || []).push(e); });
+  const keys = Object.keys(g).sort((a,b) => a.localeCompare(b,'ar'));
+  if(!keys.length) return RP_EMPTY;
+  return keys.map(key => {
+    const list = g[key].sort((a,b) => getDepartDateTime(a) - getDepartDateTime(b));
+    const totalDist = list.reduce((s,e) => s + (e._distance||0), 0);
+    const avgDur = list.reduce((s,e) => s + (e._durationMin||0), 0) / list.length;
+    const rows = list.map(e => `
+      <tr class="${timeIds.has(e.id)?'is-alert':(distIds.has(e.id)?'is-warn':'')}">
+        <td>${e.dateKey}</td><td>${fmtTime12(e.departTime)}</td>
+        <td>${escapeHtml(e[otherField])}</td><td>${escapeHtml(e.customer)}</td>
+        <td>${fmtDuration(e._durationMin)} ${timeIds.has(e.id)?'⏱️⚠️':''}</td>
+        <td>${fmtDistance(e._distance, e)} ${distIds.has(e.id)?'📏⚠️':''}</td>
+      </tr>`).join('');
+    const pdfRows = list.map(e => [e.dateKey, fmtTime12(e.departTime), e[otherField], e.customer,
+      fmtDuration(e._durationMin), fmtDistance(e._distance, e)]);
+    return `<div class="group">
+      <div class="group-head"><span>${escapeHtml(key)}</span>
+      <span class="total">${list.length} عملية · متوسط المدة ${fmtDuration(Math.round(avgDur))} · إجمالي المسافة ${totalDist.toFixed(1)} كم
+      ${pdfButton(key, ['التاريخ','المغادرة',otherCol,'الزبون','المدة','المسافة'], pdfRows)}</span></div>
+      <div class="table-wrap"><table><thead><tr>
+        <th>التاريخ</th><th>المغادرة</th><th>${otherCol}</th><th>الزبون</th><th>المدة</th><th>المسافة</th>
+      </tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  }).join('');
+}
+
+function rpCustomersCompare(done, timeIds, distIds){
+  const g = {};
+  done.forEach(e => { const k = (e.customer || '').trim(); (g[k] = g[k] || []).push(e); });
+  const keys = Object.keys(g).sort((a,b) => a.localeCompare(b,'ar'));
+  if(!keys.length) return RP_EMPTY;
+  const pumpedTotals = pumpedQtyByCustomer(done);
+  return keys.map(key => {
+    const list = g[key];
+    const avgDur = list.reduce((s,e) => s + (e._durationMin||0), 0) / list.length;
+    const valid = list.filter(e => e._distance !== null && !isNaN(e._distance));
+    const avgDist = valid.length ? valid.reduce((s,e) => s + e._distance, 0) / valid.length : null;
+    const pumps = new Set(list.filter(e => { const v = vehicles.find(v => v.name === e.vehicle); return v && v.type === 'pump'; }).map(e => e.vehicle));
+    const byVeh = {};
+    list.forEach(e => {
+      const vk = (e.vehicle || '').trim();
+      const s = byVeh[vk] = byVeh[vk] || { trips:0, durSum:0, distSum:0, tAlerts:0, dAlerts:0 };
+      s.trips++; s.durSum += (e._durationMin||0); s.distSum += (e._distance||0);
+      if(timeIds.has(e.id)) s.tAlerts++;
+      if(distIds.has(e.id)) s.dAlerts++;
+    });
+    const rows = Object.entries(byVeh).map(([vk,s]) => `
+      <tr><td class="veh-cell">${escapeHtml(vk)}</td><td>${s.trips}</td>
+        <td>${fmtDuration(Math.round(s.durSum/s.trips))}</td><td>${s.distSum.toFixed(1)} كم</td>
+        <td>${s.tAlerts>0?`<span class="badge badge-alert">${s.tAlerts}</span>`:'<span class="badge badge-ok">0</span>'}</td>
+        <td>${s.dAlerts>0?`<span class="badge badge-warn">${s.dAlerts}</span>`:'<span class="badge badge-ok">0</span>'}</td>
+      </tr>`).join('');
+    return `<div class="group">
+      <div class="group-head"><span>${escapeHtml(key)}</span>
+      <span class="total">${list.length} عملية · متوسط المدة ${fmtDuration(Math.round(avgDur))} · متوسط المسافة ${avgDist!==null?avgDist.toFixed(1)+' كم':'—'}
+      · الكمية المضخوخة ${(pumpedTotals[key]||0).toFixed(1)} · المضخات: ${pumps.size ? [...pumps].map(escapeHtml).join('، ') : '—'}</span></div>
+      <div class="table-wrap"><table><thead><tr>
+        <th>الآلية</th><th>عدد الرحلات</th><th>متوسط المدة</th><th>إجمالي المسافة</th><th>تجاوز وقت</th><th>تجاوز مسافة</th>
+      </tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  }).join('');
+}
+
+// أعلى قراءة كيلومتراج ضمن الفترة: سجل البوابة (الرحلات المكتملة) مقابل سجل المازوت.
+function rpKmCompare(trips, fills, vehicleTerm){
+  return vehicles.filter(v => rpMatch(vehicleTerm, v.name)).map(v => {
+    const gateKms = trips.filter(e => e.vehicle === v.name && e.km !== null && e.km !== undefined).map(e => Number(e.km));
+    const fuelKms = fills.filter(f => f.vehicle === v.name).map(f => Number(f.km));
+    const gateLast = gateKms.length ? Math.max(...gateKms) : null;
+    const fuelLast = fuelKms.length ? Math.max(...fuelKms) : null;
+    return { vehicle: v.name, gateLast, fuelLast,
+      diff: (gateLast !== null && fuelLast !== null) ? gateLast - fuelLast : null };
+  }).filter(r => r.gateLast !== null || r.fuelLast !== null);
+}
 
 // كمية الصب المضبوخة لكل زبون: مجموع كمية تحميل رحلات الجبالات المكتملة له
 // ضمن القائمة المُعطاة — مطابقة باسم الزبون فقط (الآلية تسجّله عند الخروج
@@ -2216,156 +2609,40 @@ function pumpedQtyByCustomer(list){
   return g;
 }
 
-// تقرير المضخات: لكل شهر ومضخة، مجموع الكمية المضبوخة (أعلاه) لكل زبون مميّز
-// خدمته تلك المضخة بذلك الشهر — زبون خدمته مضختان مختلفتان بنفس الشهر يُحسب
-// له كامل كميته لكل واحدة (حد معروف ومقصود لمطابقة الاسم فقط، لا توقيت).
-function pumpMonthlyReport(done){
-  const months = new Set(done.map(e=>opDayOfEntry(e).slice(0,7)).filter(Boolean));
+// تقرير المضخات: لكل فترة (شهر افتراضيًا) ومضخة، مجموع الكمية المضبوخة (أعلاه)
+// لكل زبون مميّز خدمته تلك المضخة بتلك الفترة — زبون خدمته مضختان مختلفتان
+// بنفس الفترة يُحسب له كامل كميته لكل واحدة (حد معروف ومقصود لمطابقة الاسم
+// فقط، لا توقيت). flt.pump / flt.customer: تصفية نصية (مُطبَّعة) اختيارية.
+function pumpMonthlyReport(done, periodOf, flt){
+  periodOf = periodOf || (e => opDayOfEntry(e).slice(0,7));
+  flt = flt || {};
+  const periods = new Set(done.map(periodOf).filter(Boolean));
   const rows = [];
-  months.forEach(month=>{
-    const monthEntries = done.filter(e=>opDayOfEntry(e).slice(0,7)===month);
-    const byCustomer = pumpedQtyByCustomer(monthEntries);
+  periods.forEach(period=>{
+    const inPeriod = done.filter(e=>periodOf(e)===period);
+    const byCustomer = pumpedQtyByCustomer(inPeriod);
     const byPump = {};
-    monthEntries.forEach(e=>{
+    inPeriod.forEach(e=>{
       const v = vehicles.find(v=>v.name===e.vehicle);
       if(!v || v.type !== 'pump') return;
       const pump = (e.vehicle||'').trim();
       const customer = (e.customer||'').trim();
       if(!pump || !customer) return;
+      if(flt.pump && !matchesSearch(flt.pump, pump)) return;
+      if(flt.customer && !matchesSearch(flt.customer, customer)) return;
       const s = byPump[pump] = byPump[pump] || { customers:new Set(), qty:0, trips:0 };
       s.trips++;
       if(!s.customers.has(customer)){ s.customers.add(customer); s.qty += byCustomer[customer] || 0; }
     });
-    Object.entries(byPump).forEach(([pump,s])=> rows.push({ month, key:pump, trips:s.trips, qty:s.qty }));
+    Object.entries(byPump).forEach(([pump,s])=> rows.push({ month:period, key:pump, trips:s.trips, qty:s.qty, customers:s.customers.size }));
   });
   return rows;
 }
 
-// مقارنة كيلومترات البوابة (آخر رحلة مكتملة) بكيلومترات المازوت (أعلى قراءة
-// كيلومتراج بسجل التعبئة) لكل آلية — فرق كبير قد يعني تسجيلًا ناقصًا بأحدهما.
-function gateVsFuelKmReport(){
-  return vehicles.map(v=>{
-    const gateKms = entries.filter(e=>e.vehicle===v.name && e.status==='done' && e.km!==null && e.km!==undefined).map(e=>Number(e.km));
-    const fuelKms = fuelFills.filter(f=>f.vehicle===v.name).map(f=>Number(f.km));
-    const gateLast = gateKms.length ? Math.max(...gateKms) : null;
-    const fuelLast = fuelKms.length ? Math.max(...fuelKms) : null;
-    return { vehicle: v.name, gateLast, fuelLast,
-      diff: (gateLast!==null && fuelLast!==null) ? gateLast - fuelLast : null };
-  }).filter(r=> r.gateLast!==null || r.fuelLast!==null);
-}
-
-function renderReports(timeIds, distIds){
-  const doneAll = entries.filter(e=>e.status==='done');
-  const done = filterByDateRange(doneAll, e=>opDayOfEntry(e));
-
-  const union = done.filter(e=> timeIds.has(e.id) || distIds.has(e.id))
-                    .sort((a,b)=> getDepartDateTime(b)-getDepartDateTime(a));
-  $('alerts-panel').innerHTML = union.length===0
-    ? '<p class="empty">لا توجد رحلات متجاوزة حالياً ضمن النسب المحددة.</p>'
-    : union.map(e=>{
-        const tags = [];
-        if(timeIds.has(e.id)) tags.push('<span class="badge badge-alert">تجاوز وقت</span>');
-        if(distIds.has(e.id)) tags.push('<span class="badge badge-warn">تجاوز مسافة</span>');
-        return `<div class="alert-row">
-          <span>${escapeHtml(e.vehicle)} — ${escapeHtml(e.driver)} — ${escapeHtml(e.customer)} ${tags.join(' ')}</span>
-          <span>${fmtDuration(e._durationMin)} · ${fmtDistance(e._distance, e)} (${e.dateKey} ${fmtTime12(e.departTime)})</span>
-        </div>`;
-      }).join('');
-
-  const groupBy = (field) => {
-    const g = {};
-    done.forEach(e=>{ const k=(e[field]||'').trim(); (g[k]=g[k]||[]).push(e); });
-    return g;
-  };
-
-  const simpleReport = (boxId, field, otherCol, otherField, searchTerm) => {
-    const g = groupBy(field);
-    let keys = Object.keys(g).sort((a,b)=>a.localeCompare(b,'ar'));
-    if(searchTerm) keys = keys.filter(k=> k.toLowerCase().includes(searchTerm.toLowerCase()));
-    $(boxId).innerHTML = keys.length===0 ? '<p class="empty">لا توجد عمليات مطابقة.</p>' : keys.map(key=>{
-      const list = g[key].sort((a,b)=> getDepartDateTime(a)-getDepartDateTime(b));
-      const totalDist = list.reduce((s,e)=> s + (e._distance||0), 0);
-      const avgDur = list.reduce((s,e)=> s + (e._durationMin||0), 0) / list.length;
-      const rows = list.map(e=>`
-        <tr class="${timeIds.has(e.id)?'is-alert':(distIds.has(e.id)?'is-warn':'')}">
-          <td>${e.dateKey}</td><td>${fmtTime12(e.departTime)}</td>
-          <td>${escapeHtml(e[otherField])}</td><td>${escapeHtml(e.customer)}</td>
-          <td>${fmtDuration(e._durationMin)} ${timeIds.has(e.id)?'⏱️⚠️':''}</td>
-          <td>${fmtDistance(e._distance, e)} ${distIds.has(e.id)?'📏⚠️':''}</td>
-        </tr>`).join('');
-      const pdfRows = list.map(e=>[e.dateKey, fmtTime12(e.departTime), e[otherField], e.customer,
-        fmtDuration(e._durationMin), fmtDistance(e._distance, e)]);
-      return `<div class="group">
-        <div class="group-head"><span>${escapeHtml(key)}</span>
-        <span class="total">${list.length} عملية · متوسط المدة ${fmtDuration(Math.round(avgDur))} · إجمالي المسافة ${totalDist.toFixed(1)} كم
-        ${pdfButton(key, ['التاريخ','المغادرة',otherCol,'الزبون','المدة','المسافة'], pdfRows)}</span></div>
-        <div class="table-wrap"><table><thead><tr>
-          <th>التاريخ</th><th>المغادرة</th><th>${otherCol}</th><th>الزبون</th><th>المدة</th><th>المسافة</th>
-        </tr></thead><tbody>${rows}</tbody></table></div></div>`;
-    }).join('');
-  };
-
-  simpleReport('report-vehicles', 'vehicle', 'السائق', 'driver', $('report-vehicles-search').value.trim());
-  simpleReport('report-drivers',  'driver',  'الآلية', 'vehicle', $('report-drivers-search').value.trim());
-
-  const byCustomer = groupBy('customer');
-  const cKeys = Object.keys(byCustomer).sort((a,b)=>a.localeCompare(b,'ar'));
-  const pumpedTotals = pumpedQtyByCustomer(done);
-  $('report-customers').innerHTML = cKeys.length===0 ? '<p class="empty">لا توجد عمليات مكتملة بعد.</p>' : cKeys.map(key=>{
-    const list = byCustomer[key];
-    const avgDur = list.reduce((s,e)=> s+(e._durationMin||0), 0)/list.length;
-    const valid = list.filter(e=> e._distance!==null && !isNaN(e._distance));
-    const avgDist = valid.length ? valid.reduce((s,e)=>s+e._distance,0)/valid.length : null;
-    const pumps = new Set(list.filter(e=>{
-      const v = vehicles.find(v=>v.name===e.vehicle);
-      return v && v.type === 'pump';
-    }).map(e=>e.vehicle));
-    const byVeh = {};
-    list.forEach(e=>{
-      const vk=(e.vehicle||'').trim();
-      const s = byVeh[vk] = byVeh[vk] || {trips:0,durSum:0,distSum:0,tAlerts:0,dAlerts:0};
-      s.trips++; s.durSum += (e._durationMin||0); s.distSum += (e._distance||0);
-      if(timeIds.has(e.id)) s.tAlerts++;
-      if(distIds.has(e.id)) s.dAlerts++;
-    });
-    const rows = Object.entries(byVeh).map(([vk,s])=>`
-      <tr><td class="veh-cell">${escapeHtml(vk)}</td><td>${s.trips}</td>
-        <td>${fmtDuration(Math.round(s.durSum/s.trips))}</td><td>${s.distSum.toFixed(1)} كم</td>
-        <td>${s.tAlerts>0?`<span class="badge badge-alert">${s.tAlerts}</span>`:'<span class="badge badge-ok">0</span>'}</td>
-        <td>${s.dAlerts>0?`<span class="badge badge-warn">${s.dAlerts}</span>`:'<span class="badge badge-ok">0</span>'}</td>
-      </tr>`).join('');
-    return `<div class="group">
-      <div class="group-head"><span>${escapeHtml(key)}</span>
-      <span class="total">${list.length} عملية · متوسط المدة ${fmtDuration(Math.round(avgDur))} · متوسط المسافة ${avgDist!==null?avgDist.toFixed(1)+' كم':'—'}
-      · الكمية المضخوخة ${(pumpedTotals[key]||0).toFixed(1)} · المضخات: ${pumps.size? [...pumps].map(escapeHtml).join('، ') : '—'}</span></div>
-      <div class="table-wrap"><table><thead><tr>
-        <th>الآلية</th><th>عدد الرحلات</th><th>متوسط المدة</th><th>إجمالي المسافة</th><th>تجاوز وقت</th><th>تجاوز مسافة</th>
-      </tr></thead><tbody>${rows}</tbody></table></div></div>`;
-  }).join('');
-
-  const pumpRows = pumpMonthlyReport(done);
-  $('report-pumps').innerHTML = monthlyTable(pumpRows, 'المضخة', [
-    { label:'عدد الرحلات', value:r=>r.trips },
-    { label:'الكمية المضخوخة المحسوبة', value:r=>r.qty.toFixed(1) }
-  ], 'الشهر', 'تقرير المضخات — الكمية المضخوخة');
-
-  const kmRows = gateVsFuelKmReport();
-  $('report-km-compare').innerHTML = kmRows.length===0 ? '<p class="empty">لا توجد بيانات كافية بعد.</p>' :
-    `<div class="table-wrap"><table><thead><tr>
-      <th>الآلية</th><th>آخر كم من سجل البوابة</th><th>آخر كم من سجل المازوت</th><th>الفرق</th>
-    </tr></thead><tbody>${kmRows.map(r=>`<tr class="${r.diff!==null && Math.abs(r.diff)>50 ? 'is-alert':''}">
-      <td class="veh-cell">${escapeHtml(r.vehicle)}</td><td>${r.gateLast??'—'}</td><td>${r.fuelLast??'—'}</td>
-      <td>${r.diff===null?'—':r.diff.toFixed(1)}</td></tr>`).join('')}</tbody></table></div>
-      ${pdfButton('مقارنة كيلومترات البوابة والمازوت', ['الآلية','آخر كم من سجل البوابة','آخر كم من سجل المازوت','الفرق'],
-        kmRows.map(r=>[r.vehicle, r.gateLast??'—', r.fuelLast??'—', r.diff===null?'—':r.diff.toFixed(1)]))}`;
-
-  renderMonthlyReports(done);
-}
-
 // جدول دوري عام: يجمع صفوفًا حسب مفتاح مركّب (الفترة + اسم)، ثم يعرضها
-// الأحدث أولًا. الفترة يوم أو شهر حسب اختيار المستخدم بضابط رقم التقارير.
+// الأحدث أولًا. الفترة يوم أو شهر.
 function monthlyTable(rows, keyLabel, cols, periodLabel, title){
-  if(!rows.length) return '<p class="empty">لا توجد عمليات مكتملة كافية بعد.</p>';
+  if(!rows.length) return RP_EMPTY;
   const sorted = [...rows].sort((a,b)=> b.month.localeCompare(a.month) || a.key.localeCompare(b.key,'ar'));
   const head = `<th>${periodLabel||'الفترة'}</th><th>${keyLabel}</th>` + cols.map(c=>`<th>${c.label}</th>`).join('');
   const body = sorted.map(r=>`<tr><td>${r.month}</td><td>${escapeHtml(r.key)}</td>${
@@ -2390,49 +2667,7 @@ function groupMonthly(list, dateKeyOf, nameOf, granularity){
   });
   return Object.values(g);
 }
-
-function renderMonthlyReports(done){
-  const granularity = reportGranularity();
-  const periodLabel = granularity === 'day' ? 'اليوم' : 'الشهر';
-  const qtyCols = [
-    { label:'عدد الرحلات', value:r=>r.trips },
-    { label:'إجمالي كمية الصب', value:r=>r.loadQty.toFixed(1) }
-  ];
-  $('report-monthly-customers').innerHTML =
-    monthlyTable(groupMonthly(done, e=>opDayOfEntry(e), e=>e.customer, granularity), 'الزبون', qtyCols, periodLabel, 'التقرير الدوري — الزبائن وكميات الصب');
-  $('report-monthly-drivers').innerHTML =
-    monthlyTable(groupMonthly(done, e=>opDayOfEntry(e), e=>e.driver, granularity), 'السائق', qtyCols, periodLabel, 'التقرير الدوري — السائقون');
-  $('report-monthly-vehicles').innerHTML =
-    monthlyTable(groupMonthly(done, e=>opDayOfEntry(e), e=>e.vehicle, granularity), 'الآلية', qtyCols, periodLabel, 'التقرير الدوري — الآليات');
-
-  // استهلاك المازوت دوريًا لكل آلية، مقابل كيلومتراتها الفعلية من سجل الرحلات
-  // (المسافة _distance محسوبة أصلًا في enrichEntries لكل رحلة مكتملة).
-  const fuelFillsInRange = filterByDateRange(fuelFills, f=>opDayOf(f.dateKey, f.time));
-  const fuelByPeriodVehicle = {};
-  fuelFillsInRange.forEach(f=>{
-    const dateKey = opDayOf(f.dateKey, f.time);
-    const period = granularity === 'day' ? dateKey : dateKey.slice(0,7);
-    const vehicle = (f.vehicle||'').trim();
-    if(!period || !vehicle) return;
-    const key = period + '|' + vehicle;
-    fuelByPeriodVehicle[key] = fuelByPeriodVehicle[key] || { month: period, key: vehicle, qty:0, km:0 };
-    fuelByPeriodVehicle[key].qty += Number(f.qty) || 0;
-  });
-  done.forEach(e=>{
-    const dateKey = opDayOfEntry(e);
-    const period = granularity === 'day' ? dateKey : dateKey.slice(0,7);
-    const vehicle = (e.vehicle||'').trim();
-    if(!period || !vehicle) return;
-    const key = period + '|' + vehicle;
-    if(!fuelByPeriodVehicle[key]) return; // لا مازوت مسجّل لهذه الآلية بهذه الفترة — لا صف لعرضه
-    fuelByPeriodVehicle[key].km += e._distance || 0;
-  });
-  $('report-monthly-fuel').innerHTML = monthlyTable(Object.values(fuelByPeriodVehicle), 'الآلية', [
-    { label:'كمية المازوت المستهلكة', value:r=>r.qty.toFixed(1) },
-    { label:'إجمالي الكيلومترات', value:r=>r.km.toFixed(1) },
-    { label:'معدل الاستهلاك (لتر/١٠٠كم)', value:r=> r.km>0 ? (r.qty/r.km*100).toFixed(1) : '—' }
-  ], periodLabel, 'التقرير الدوري — استهلاك المازوت مقابل الكيلومتر');
-}
+/* RPT-END */
 
 // تعديل/حذف العمليات وتصدير السجل يبقيان لمدير الآليات؛ تسجيل الآليات
 // والسائقين والرصيد الابتدائي للمازوت صار حصرًا للأدمن (تبويب «الإعداد الأولي»).
@@ -2480,7 +2715,7 @@ function render(){
     renderVehiclesTab();
     renderDriversTab();
     renderLogTable(timeIds, distIds);
-    renderReports(timeIds, distIds);
+    rpRenderActive();
   }
   if(currentRole === 'fuel' || currentRole === 'fuel_warehouse_manager' || currentRole === 'admin'){
     renderFuelTab();
@@ -2497,6 +2732,7 @@ function switchTab(name){
   if(!btn || btn.hidden) return;
   document.querySelectorAll('.tab').forEach(b=> b.classList.toggle('active', b.dataset.tab===name));
   document.querySelectorAll('.tab-panel').forEach(p=> p.classList.toggle('active', p.id === 'tab-'+name));
+  if(name === 'reports' && currentRole) rpEnter();   // الدخول للتبويب: بيانات اليوم الحالي من قاعدة البيانات
 }
 
 /**
@@ -3067,6 +3303,7 @@ async function enterApp(role, username){
    ربط الأحداث
    =================================================================== */
 function bindEvents(){
+  rpBuild();   // تبويبات التقارير والتنبيهات (تُبنى مرة واحدة قبل ربط حقول النسب)
   document.querySelectorAll('.tab').forEach(b=> b.addEventListener('click', ()=> switchTab(b.dataset.tab)));
 
   // الدخول
@@ -3148,11 +3385,6 @@ function bindEvents(){
   // المدير — التقارير
   $('pct-threshold').addEventListener('input', render);
   $('pct-threshold-dist').addEventListener('input', render);
-  $('rep-from').addEventListener('change', render);
-  $('rep-to').addEventListener('change', render);
-  $('rep-granularity').addEventListener('change', render);
-  $('report-vehicles-search').addEventListener('input', render);
-  $('report-drivers-search').addEventListener('input', render);
 
   // الأدمن — المستخدمون
   $('user-form').addEventListener('submit', submitUser);

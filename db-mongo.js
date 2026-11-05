@@ -498,6 +498,18 @@ async function listEntries(days) {
   return rows.map(stripId);
 }
 
+/**
+ * عمليات/تعبئات ضمن نطاق تاريخ تقويمي مغلق [fromKey..toKey] (YYYY-MM-DD) — للقراءة فقط.
+ * تُستعمل لتقارير الفترة: يومٌ تشغيلي واحد يمتد من الساعة 03:00 حتى 03:00 من التقويمي التالي،
+ * فيطلب الخادم يومًا تقويميًا إضافيًا في النهاية ثم يفرز حسب اليوم التشغيلي.
+ */
+async function listEntriesRange(fromKey, toKey) {
+  const rows = await col.entries
+    .find({ dateKey: { $gte: String(fromKey), $lte: String(toKey) } })
+    .sort({ dateKey: -1, departTime: -1 }).toArray();
+  return rows.map(stripId);
+}
+
 async function getEntry(id) {
   return stripId(await col.entries.findOne({ _id: String(id) }));
 }
@@ -822,6 +834,13 @@ async function listFuelFills(days) {
   return rows.map(fuelFillOut);
 }
 
+async function listFuelFillsRange(fromKey, toKey) {
+  const rows = await col.fuelFills
+    .find({ dateKey: { $gte: String(fromKey), $lte: String(toKey) } })
+    .sort({ dateKey: -1, time: -1 }).toArray();
+  return rows.map(fuelFillOut);
+}
+
 async function getFuelFillByClientRef(ref) {
   if (!ref) return null;
   return fuelFillOut(await col.fuelFills.findOne({ clientRef: String(ref) }));
@@ -1024,12 +1043,12 @@ module.exports = {
   login, logout, sessionUser, purgeExpiredSessions,
   checkLockout, noteLoginFailure, clearLoginFailures,
   audit, listAudit,
-  listVehicles, listEntries, getEntry, getEntryByClientRef, getVehicle, getVehicleByName,
+  listVehicles, listEntries, listEntriesRange, getEntry, getEntryByClientRef, getVehicle, getVehicleByName,
   lastKmForVehicle, vehicleIsOut, countEntriesForVehicle,
   insertEntry, closeEntry, updateEntry, deleteEntry,
   insertVehicle, updateVehicle, deleteVehicle, getVehicleByClientRef,
   listDrivers, getDriverByName, insertDriver, updateDriver, deleteDriver, getDriverByClientRef,
-  insertFuelFill, listFuelFills, insertFuelSupply, listFuelSupply, lastWorkHoursForVehicle, lastDispenserMeterReading,
+  insertFuelFill, listFuelFills, listFuelFillsRange, insertFuelSupply, listFuelSupply, lastWorkHoursForVehicle, lastDispenserMeterReading,
   getFuelFillByClientRef, getFuelSupplyByClientRef,
   lastFuelMeterReading, getFuelBaseline, setFuelBaseline,
   listGuestVisits, insertGuestVisit, closeGuestVisit
