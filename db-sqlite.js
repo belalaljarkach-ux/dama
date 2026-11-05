@@ -492,6 +492,17 @@ function listEntries(days) {
                      ORDER BY date_key DESC, depart_time DESC`).all(from).map(entryOut);
 }
 
+/**
+ * عمليات/تعبئات ضمن نطاق تاريخ تقويمي مغلق [fromKey..toKey] (YYYY-MM-DD) — للقراءة فقط.
+ * تُستعمل لتقارير الفترة: يومٌ تشغيلي واحد يمتد من الساعة 03:00 حتى 03:00 من التقويمي التالي،
+ * فيطلب الخادم يومًا تقويميًا إضافيًا في النهاية ثم يفرز حسب اليوم التشغيلي.
+ */
+function listEntriesRange(fromKey, toKey) {
+  return db.prepare(`SELECT * FROM entries
+                     WHERE date_key >= ? AND date_key <= ?
+                     ORDER BY date_key DESC, depart_time DESC`).all(String(fromKey), String(toKey)).map(entryOut);
+}
+
 function getEntry(id) {
   const r = db.prepare('SELECT * FROM entries WHERE id = ?').get(String(id));
   return r ? entryOut(r) : null;
@@ -769,6 +780,12 @@ function listFuelFills(days) {
     .all(from).map(fuelFillOut);
 }
 
+function listFuelFillsRange(fromKey, toKey) {
+  return db.prepare(`SELECT * FROM fuel_fills
+                     WHERE date_key >= ? AND date_key <= ?
+                     ORDER BY date_key DESC, time DESC`).all(String(fromKey), String(toKey)).map(fuelFillOut);
+}
+
 function getFuelFillByClientRef(ref) {
   if (!ref) return null;
   const r = db.prepare('SELECT * FROM fuel_fills WHERE client_ref = ?').get(String(ref));
@@ -944,12 +961,12 @@ module.exports = {
   login, logout, sessionUser, purgeExpiredSessions,
   checkLockout, noteLoginFailure, clearLoginFailures,
   audit, listAudit,
-  listVehicles, listEntries, getEntry, getEntryByClientRef, getVehicle, getVehicleByName,
+  listVehicles, listEntries, listEntriesRange, getEntry, getEntryByClientRef, getVehicle, getVehicleByName,
   lastKmForVehicle, vehicleIsOut, countEntriesForVehicle,
   insertEntry, closeEntry, updateEntry, deleteEntry,
   insertVehicle, updateVehicle, deleteVehicle, getVehicleByClientRef,
   listDrivers, getDriverByName, insertDriver, updateDriver, deleteDriver, getDriverByClientRef,
-  insertFuelFill, listFuelFills, insertFuelSupply, listFuelSupply, lastWorkHoursForVehicle, lastDispenserMeterReading,
+  insertFuelFill, listFuelFills, listFuelFillsRange, insertFuelSupply, listFuelSupply, lastWorkHoursForVehicle, lastDispenserMeterReading,
   getFuelFillByClientRef, getFuelSupplyByClientRef,
   lastFuelMeterReading, getFuelBaseline, setFuelBaseline,
   listGuestVisits, insertGuestVisit, closeGuestVisit

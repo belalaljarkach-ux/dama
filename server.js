@@ -21,6 +21,7 @@ const path   = require('node:path');
 const config = require('./config');
 const db     = require('./db');
 const { buildReportPdf } = require('./pdf-export');
+const reportsCore = require('./reports-core');
 
 const ROOT     = __dirname;
 const PUBLIC   = path.join(ROOT, 'public');
@@ -271,6 +272,29 @@ async function route(req, res, url) {
       dayStartHour: config.dayStartHour,
       serverTime: new Date().toISOString()
     });
+  }
+
+  /* ---- تقارير الفترة (يوم تشغيلي أو نطاق) — قراءة فقط ---- */
+  // يقرأ من قاعدة البيانات الفترة المطلوبة وحدها (+ عمق ماضٍ لحساب المسافة وخط
+  // أساس التنبيهات) بدل تحميل كل النظام. لا يغيّر أي بيانات.
+  if (p === '/api/reports/period' && m === 'GET') {
+    const actor = await requireRole(req, res, 'fleet_manager', 'admin'); if (!actor) return;
+    const today = reportsCore.currentOpDay(new Date(), config.dayStartHour);
+    const from = url.searchParams.get('from') || today;
+    const to   = url.searchParams.get('to')   || from;
+    const bad = reportsCore.validatePeriod(from, to);
+    if (bad) return fail(res, 400, bad);
+    const plan = reportsCore.planRange(from, to, DEFAULT_WINDOW_DAYS);
+    const [entries, fuelFills, vehicles] = await Promise.all([
+      db.listEntriesRange(plan.lookbackFrom, plan.readTo),
+      db.listFuelFillsRange(reportsCore.shiftDateKey(from, 0), plan.readTo),
+      db.listVehicles()
+    ]);
+    const report = reportsCore.buildPeriodReport({
+      from, to, entries, fuelFills, vehicles,
+      lookbackFrom: plan.lookbackFrom, startHour: config.dayStartHour
+    });
+    return json(res, 200, Object.assign(report, { today, serverTime: new Date().toISOString() }));
   }
 
   /* ---- المغادرة: البوابة والمدير ---- */
