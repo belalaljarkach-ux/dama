@@ -319,10 +319,10 @@
 
   <nav class="tabs" id="tabs">
     <button class="tab" data-tab="entry" data-role="gate">تسجيل عملية</button>
-    <button class="tab" data-tab="vehicles" data-role="fleet_manager,admin">الآليات</button>
-    <button class="tab" data-tab="drivers" data-role="fleet_manager,admin">السائقون</button>
-    <button class="tab" data-tab="log" data-role="fleet_manager,admin">السجل الكامل</button>
-    <button class="tab" data-tab="reports" data-role="fleet_manager,admin">التقارير والتنبيهات</button>
+    <button class="tab" data-tab="vehicles" data-role="fleet_manager,fleet_coordinator,admin">الآليات</button>
+    <button class="tab" data-tab="drivers" data-role="fleet_manager,fleet_coordinator,admin">السائقون</button>
+    <button class="tab" data-tab="log" data-role="fleet_manager,fleet_coordinator,admin">السجل الكامل</button>
+    <button class="tab" data-tab="reports" data-role="fleet_manager,fleet_coordinator,admin">التقارير والتنبيهات</button>
     <button class="tab" data-tab="fuel" data-role="fuel,fuel_warehouse_manager,admin">المازوت</button>
     <button class="tab" data-tab="setup" data-role="admin">الإعداد الأولي</button>
     <button class="tab" data-tab="users" data-role="admin">المستخدمون</button>
@@ -712,6 +712,7 @@
           <select id="u-role">
             <option value="gate">البوابة</option>
             <option value="fleet_manager">مدير الآليات</option>
+            <option value="fleet_coordinator">منسق حركة الآليات</option>
             <option value="fuel">المازوت</option>
             <option value="fuel_warehouse_manager">مدير مستودع المازوت</option>
             <option value="admin">أدمن</option>
@@ -827,7 +828,8 @@ let fuelFills   = [];
 let fuelSupply  = [];
 let fuelBaseline = {}; // { tank1: {initialQty,initialMeter}|null, tank2: ..., tank3: ... }
 let guestVisits = [];
-let currentRole = null;        // gate | fleet_manager | fuel | admin | fuel_warehouse_manager
+let currentRole = null;        // gate | fleet_manager | fleet_coordinator | fuel | admin | fuel_warehouse_manager | hr
+let userPermissions = {};      // من /api/state — editFullRecord (تعديل السجل الكامل: مدير الآليات وحده)
 let currentUsername = null;
 let openReturnId = null;
 let outSearch = '';
@@ -1345,6 +1347,7 @@ async function refresh(){
   vehicles = data.vehicles;
   drivers  = data.drivers || [];
   fuelFills = data.fuelFills || [];
+  userPermissions = data.permissions || {};
   fuelSupply = data.fuelSupply || [];
   fuelBaseline = data.fuelBaseline || {};
   guestVisits = data.guestVisits || [];
@@ -1513,7 +1516,7 @@ function renderHero(alertIds){
   if(st.outByType.other > 0){
     cards.push(`<div class="kpi warn-kpi"><span class="n">${st.outByType.other}</span><span class="l">في الخارج — بلا نوع مسجّل</span></div>`);
   }
-  if(currentRole === 'fleet_manager' || currentRole === 'admin'){
+  if(isFleetRole() || currentRole === 'admin'){
     cards.push(`<div class="kpi"><span class="n">${st.customersToday}</span><span class="l">عداد الزبائن اليومي</span></div>`);
     cards.push(`<div class="kpi alert-kpi"><span class="n">${st.alertsToday}</span><span class="l">تنبيهات نشطة اليوم التشغيلي</span></div>`);
   }else{
@@ -1701,9 +1704,9 @@ function renderLogTable(timeIds, distIds){
       <td>${e.km ?? '—'}</td>
       <td>${e.status==='done' ? fmtDistance(e._distance, e) + (dAlert?' 📏⚠️':'') : '—'}</td>
       <td>${escapeHtml([e.notesOut, e.notesIn].filter(Boolean).join(' / '))}</td>
-      <td class="row-actions">${canEditFleet() ? `
-        <button class="btn-edit" data-id="${e.id}">تعديل</button>
-        <button class="btn-delete" data-id="${e.id}">حذف</button>` : ''}</td>
+      <td class="row-actions">${(canEditFullRecord() ? `
+        <button class="btn-edit" data-id="${e.id}">تعديل</button>` : '') + (canDeleteEntry() ? `
+        <button class="btn-delete" data-id="${e.id}">حذف</button>` : '')}</td>
     </tr>`;
   }).join('');
 }
@@ -2671,7 +2674,13 @@ function groupMonthly(list, dateKeyOf, nameOf, granularity){
 
 // تعديل/حذف العمليات وتصدير السجل يبقيان لمدير الآليات؛ تسجيل الآليات
 // والسائقين والرصيد الابتدائي للمازوت صار حصرًا للأدمن (تبويب «الإعداد الأولي»).
-function canEditFleet(){ return currentRole === 'fleet_manager'; }
+// صلاحيات مدير الآليات الحالية (حذف العمليات وتصدير CSV...) يشاركه فيها «منسق حركة الآليات».
+function isFleetRole(){ return currentRole === 'fleet_manager' || currentRole === 'fleet_coordinator'; }
+function canEditFleet(){ return isFleetRole(); }     // تصدير CSV: المدير والمنسق
+// حذف العملية: مدير الآليات وحده — يقرّره الخادم ويفرضه (403 لغيره).
+function canDeleteEntry(){ return currentRole === 'fleet_manager' && !!userPermissions.deleteEntry; }
+// «تعديل السجل الكامل»: مدير الآليات وحده — الخادم هو من يقرّرها ويفرضها (403 لغيره).
+function canEditFullRecord(){ return currentRole === 'fleet_manager' && !!userPermissions.editFullRecord; }
 function canManageFleetSetup(){ return currentRole === 'admin'; }
 
 function renderSetupTab(){
@@ -2699,7 +2708,7 @@ function renderHrTab(){
 function render(){
   enrichEntries();
   let timeIds = new Set(), distIds = new Set();
-  if(currentRole === 'fleet_manager' || currentRole === 'admin'){
+  if(isFleetRole() || currentRole === 'admin'){
     timeIds = alertIdsBy('_durationMin', Number($('pct-threshold').value || 20));
     distIds = alertIdsBy('_distance',    Number($('pct-threshold-dist').value || 20));
   }
@@ -2711,7 +2720,7 @@ function render(){
     renderRecent();
     renderGuestList();
     updateLoadQtyVisibility();
-  }else if(currentRole === 'fleet_manager' || currentRole === 'admin'){
+  }else if(isFleetRole() || currentRole === 'admin'){
     renderVehiclesTab();
     renderDriversTab();
     renderLogTable(timeIds, distIds);
@@ -2743,6 +2752,7 @@ function switchTab(name){
 const ROLE_LABELS = {
   gate: 'وضع البوابة',
   fleet_manager: 'وضع مدير الآليات',
+  fleet_coordinator: 'وضع منسق حركة الآليات',
   fuel: 'وضع المازوت',
   fuel_warehouse_manager: 'وضع مدير مستودع المازوت',
   admin: 'وضع الأدمن',
@@ -2751,6 +2761,7 @@ const ROLE_LABELS = {
 const ROLE_DEFAULT_TAB = {
   gate: 'entry',
   fleet_manager: 'vehicles',
+  fleet_coordinator: 'vehicles',
   fuel: 'fuel',
   fuel_warehouse_manager: 'fuel',
   admin: 'users',
@@ -2933,6 +2944,7 @@ async function confirmReturn(id){
 
 /* ---- تعديل عملية (المدير، عبر نافذة منبثقة) ---- */
 function openEditDialog(id){
+  if(!canEditFullRecord()) return;
   const e = entries.find(x=>x.id===id);
   if(!e) return;
   $('e-id').value = e.id;
@@ -3016,6 +3028,7 @@ async function submitEdit(ev){
 }
 
 async function deleteEntry(id){
+  if(!canDeleteEntry()) return;
   const e = entries.find(x=>x.id===id);
   if(!e) return;
   if(!confirm(`حذف عملية «${e.vehicle}» بتاريخ ${e.dateKey}؟\nالحذف يُسجَّل في سجل التدقيق.`)) return;
@@ -3114,7 +3127,7 @@ async function deleteVehicleAction(id){
 let usersCache = [];
 
 const ROLE_NAME = {
-  gate: 'البوابة', fleet_manager: 'مدير الآليات', fuel: 'المازوت',
+  gate: 'البوابة', fleet_manager: 'مدير الآليات', fleet_coordinator: 'منسق حركة الآليات', fuel: 'المازوت',
   fuel_warehouse_manager: 'مدير مستودع المازوت', admin: 'أدمن'
 };
 
@@ -3347,8 +3360,8 @@ function bindEvents(){
   $('log-search').addEventListener('input', ev=>{ logSearch = ev.target.value; render(); });
   $('log-table-body').addEventListener('click', ev=>{
     const btn = ev.target.closest('button'); if(!btn) return;
-    if(btn.classList.contains('btn-edit')) openEditDialog(btn.dataset.id);
-    else if(btn.classList.contains('btn-delete')) deleteEntry(btn.dataset.id);
+    if(btn.classList.contains('btn-edit')){ if(canEditFullRecord()) openEditDialog(btn.dataset.id); }
+    else if(btn.classList.contains('btn-delete')){ if(canDeleteEntry()) deleteEntry(btn.dataset.id); }
   });
   $('export-csv').addEventListener('click', ()=>{ location.href = '/api/export/entries.csv'; });
 
