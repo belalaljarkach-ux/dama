@@ -274,8 +274,14 @@ const DEFAULT_ROLE_USERS = [
   { username: 'مدير_الاليات',              role: 'fleet_manager',          fullName: 'مدير الآليات' },
   { username: 'المازوت',                   role: 'fuel',                   fullName: 'حساب المازوت' },
   { username: 'مدير_مستودع_المازوت',        role: 'fuel_warehouse_manager', fullName: 'مدير مستودع المازوت' },
-  { username: 'مسؤول_الموارد_البشرية',      role: 'hr',                     fullName: 'مسؤول الموارد البشرية' }
+  { username: 'مسؤول_الموارد_البشرية',      role: 'hr',                     fullName: 'مسؤول الموارد البشرية' },
+  { username: 'منسق_حركة_الاليات',          role: 'fleet_coordinator',      fullName: 'منسق حركة الآليات' }
 ];
+
+// حساب المنسق أُضيف بعد أول إصدار: في قاعدة قائمة يُزرع مرة واحدة فقط إن لم يوجد أي
+// مستخدم بدور fleet_coordinator ولا بهذا الاسم (الحسابات الأخرى لا تُمس إطلاقًا).
+const COORDINATOR_DEFAULT = DEFAULT_ROLE_USERS.find(d => d.role === 'fleet_coordinator');
+
 
 /**
  * عند أول تشغيل: تُنشأ حسابات شخصية افتراضية بكلمات مرور عشوائية تُعرض مرة واحدة.
@@ -301,6 +307,11 @@ function seedUsers(adminPassword) {
         out[def.username] = plain;
       }
     }
+  }
+  if (!noUsersYet && !listUsers().some(u => u.role === 'fleet_coordinator') && !getUserByUsername(COORDINATOR_DEFAULT.username)) {
+    const plain = randomPassword();
+    insertUser({ username: COORDINATOR_DEFAULT.username, passwordHash: hashPassword(plain), role: 'fleet_coordinator', fullName: COORDINATOR_DEFAULT.fullName });
+    out[COORDINATOR_DEFAULT.username] = plain;
   }
   if (!getUserByUsername('admin')) {
     insertUser({ username: 'admin', passwordHash: hashPassword(adminPassword || 'sald2024'), role: 'admin', fullName: 'المدير العام' });
@@ -619,7 +630,7 @@ function updateEntry(id, data) {
          done ? (data.returnDate || data.dateKey) : null,
          done ? data.returnTime : null,
          done ? Number(data.km) : null,
-         done ? (data.notesIn || '') : '',
+         data.notesIn || '',                     // لا تضيع ملاحظة العودة عند تعديل سجل غير مكتمل
          done ? 'done' : 'out',
          new Date().toISOString(), String(id));
   return getEntry(id);

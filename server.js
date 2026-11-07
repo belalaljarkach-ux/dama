@@ -101,7 +101,25 @@ function parseCookies(req) {
 const RE_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const RE_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 
-const ROLES = ['gate', 'fleet_manager', 'fuel', 'admin', 'fuel_warehouse_manager', 'hr'];
+const ROLES = ['gate', 'fleet_manager', 'fuel', 'admin', 'fuel_warehouse_manager', 'hr', 'fleet_coordinator'];
+
+// صلاحيات «مدير الآليات» الحالية (التبويبات والتقارير وتصدير CSV) يمتلكها أيضًا
+// «منسق حركة الآليات» (fleet_coordinator) — عدا ما يُعرَّف أدناه لمدير الآليات وحده.
+const FLEET_ROLES = ['fleet_manager', 'fleet_coordinator'];
+
+// «تعديل السجل الكامل» (PUT /api/entries/:id): لمدير الآليات وحده. هي الصلاحية
+// الوحيدة التي يختص بها دونه المنسق؛ تُفرض هنا في الخادم والواجهة تقرؤها من
+// permissions في /api/state فقط لإظهار الزر.
+const EDIT_FULL_RECORD_ROLES = ['fleet_manager'];
+
+// حذف العملية (DELETE /api/entries/:id): لمدير الآليات وحده — لا يملكه المنسق.
+const DELETE_ENTRY_ROLES = ['fleet_manager'];
+function permissionsFor(role) {
+  return {
+    editFullRecord: EDIT_FULL_RECORD_ROLES.includes(role),
+    deleteEntry: DELETE_ENTRY_ROLES.includes(role)
+  };
+}
 const VEHICLE_TYPES = ['gabbala', 'pump', 'service', 'silo'];
 const TANKS = ['tank1', 'tank2', 'tank3'];
 
@@ -248,7 +266,8 @@ async function route(req, res, url) {
 
   if (p === '/api/me' && m === 'GET') {
     const { role, username } = await auth(req);
-    return json(res, 200, { role: role || null, username: username || null, serverTime: new Date().toISOString() });
+    return json(res, 200, { role: role || null, username: username || null,
+      permissions: permissionsFor(role), serverTime: new Date().toISOString() });
   }
 
   /* ---- الحالة الكاملة (طلب واحد بدل طلبين) ---- */
@@ -261,6 +280,7 @@ async function route(req, res, url) {
     return json(res, 200, {
       role: actor.role,
       username: actor.username,
+      permissions: permissionsFor(actor.role),
       entries: await db.listEntries(days),
       vehicles: await db.listVehicles(),
       drivers: await db.listDrivers(),
@@ -278,7 +298,7 @@ async function route(req, res, url) {
   // يقرأ من قاعدة البيانات الفترة المطلوبة وحدها (+ عمق ماضٍ لحساب المسافة وخط
   // أساس التنبيهات) بدل تحميل كل النظام. لا يغيّر أي بيانات.
   if (p === '/api/reports/period' && m === 'GET') {
-    const actor = await requireRole(req, res, 'fleet_manager', 'admin'); if (!actor) return;
+    const actor = await requireRole(req, res, ...FLEET_ROLES, 'admin'); if (!actor) return;
     const today = reportsCore.currentOpDay(new Date(), config.dayStartHour);
     const from = url.searchParams.get('from') || today;
     const to   = url.searchParams.get('to')   || from;
@@ -445,11 +465,11 @@ async function route(req, res, url) {
     return json(res, 200, { visit: result.visit });
   }
 
-  /* ---- تعديل وحذف العمليات: المدير فقط ---- */
+  /* ---- تعديل السجل الكامل وحذف العملية: مدير الآليات وحده ---- */
 
   const mEntry = p.match(/^\/api\/entries\/([\w-]+)$/);
   if (mEntry && m === 'PUT') {
-    const actor = await requireRole(req, res, 'fleet_manager'); if (!actor) return;
+    const actor = await requireRole(req, res, ...EDIT_FULL_RECORD_ROLES); if (!actor) return;
     const b = await readJson(req);
     const before = await db.getEntry(mEntry[1]);
     if (!before) return fail(res, 404, 'العملية غير موجودة.');
@@ -477,13 +497,23 @@ async function route(req, res, url) {
       payload.km = requireKm(b.km, 'كيلومتراج العودة');
     }
 
+    // لا رحلتان مفتوحتان لآلية واحدة: تعديل يترك هذا السجل «في الخارج» لآلية لها
+    // رحلة مفتوحة أخرى كان يصطدم بالفهرس الفريد فيعود خطأ خادم غامضًا.
+    if (payload.returnTime === null) {
+      const other = await db.vehicleIsOut(payload.vehicle);
+      if (other && String(other.id) !== String(before.id)) {
+        return fail(res, 409, `الآلية «${payload.vehicle}» مسجّلة في الخارج منذ الساعة ${other.departTime} مع السائق ${other.driver}. سجّل عودتها أو أضف بيانات العودة لهذا السجل.`);
+      }
+    }
+
     const entry = await db.updateEntry(before.id, payload);
+    // التدقيق: من (username/role) ومتى (at) وما الذي تغيّر (before/after كاملين).
     await db.audit(actor, clientIp(req), 'edit_entry', before.id, { before, after: entry });
     return json(res, 200, { entry });
   }
 
   if (mEntry && m === 'DELETE') {
-    const actor = await requireRole(req, res, 'fleet_manager'); if (!actor) return;
+    const actor = await requireRole(req, res, ...DELETE_ENTRY_ROLES); if (!actor) return;
     const before = await db.getEntry(mEntry[1]);
     if (!before) return fail(res, 404, 'العملية غير موجودة.');
     await db.deleteEntry(before.id);
@@ -773,10 +803,10 @@ async function route(req, res, url) {
     return json(res, 200, { ok: true });
   }
 
-  /* ---- التصدير: مدير الآليات فقط ---- */
+  /* ---- التصدير: مدير الآليات والمنسق ---- */
 
   if (p === '/api/export/entries.csv' && m === 'GET') {
-    const actor = await requireRole(req, res, 'fleet_manager'); if (!actor) return;
+    const actor = await requireRole(req, res, ...FLEET_ROLES); if (!actor) return;
     const rows = await db.listEntries(0);
     await db.audit(actor, clientIp(req), 'export_csv', null, { count: rows.length });
     return send(res, 200, entriesCsv(rows), {
@@ -886,9 +916,12 @@ function banner(location, initialPasswords) {
       ''
     ].filter(Boolean);
     console.log(lines.join('\n'));
-    fs.writeFileSync(path.join(DATA_DIR, 'كلمات-المرور-الأولية.txt'),
-      '\uFEFF' + lines.join('\r\n')
-        + '\r\nاحذف هذا الملف بعد تغيير كلمتي المرور.\r\n', 'utf8');
+    // عند الترقية (حساب جديد في قاعدة قائمة) يُضاف إلى الملف الموجود بدل استبداله،
+    // فلا تضيع كلمات المرور الأولية المحفوظة فيه.
+    const pwFile = path.join(DATA_DIR, 'كلمات-المرور-الأولية.txt');
+    const body = lines.join('\r\n') + '\r\nاحذف هذا الملف بعد تغيير كلمات المرور.\r\n';
+    if (fs.existsSync(pwFile)) fs.appendFileSync(pwFile, '\r\n' + body, 'utf8');
+    else fs.writeFileSync(pwFile, '\uFEFF' + body, 'utf8');
   }
   console.log('');
 }

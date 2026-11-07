@@ -193,6 +193,10 @@ async function init(options) {
   // أُنشئت قبل إضافة نموذج المستخدمين الشخصي، فنضيف الأعمدة الناقصة يدويًا.
   // sessions و audit عمليّتان لا تحملان بيانات عمل جوهرية (الجلسات مؤقتة، والتدقيق
   // إضافي)، فالإضافة الآمنة بعمود جديد تكفي، بلا حاجة لإعادة بناء الجدول.
+  // أسماء الأدوار (مثل fuel_warehouse_manager وfleet_coordinator) أطول من 16 حرفًا،
+  // وكان عمودا الدور في sessions وaudit بعرض 16 في قواعد أُنشئت قبل ذلك. توسيع
+  // آمن لا يمسّ البيانات (نفس migrations/001-widen-role-columns.sql).
+  await widenRoleColumns();
   await ensureColumn('sessions', 'user_id', 'user_id NVARCHAR(64) NULL');
   await ensureColumn('sessions', 'username', 'username NVARCHAR(120) NULL');
   await ensureColumn('audit', 'username', "username NVARCHAR(120) NOT NULL CONSTRAINT df_audit_username DEFAULT N'-'");
@@ -325,7 +329,7 @@ async function createSchema() {
     `IF OBJECT_ID('dbo.sessions','U') IS NULL
      CREATE TABLE dbo.sessions (
        token      NVARCHAR(128) NOT NULL PRIMARY KEY,
-       role       NVARCHAR(16)  NOT NULL,
+       role       NVARCHAR(32)  NOT NULL,
        created_at NVARCHAR(40)  NOT NULL,
        expires_at NVARCHAR(40)  NOT NULL
      )`,
@@ -341,7 +345,7 @@ async function createSchema() {
      CREATE TABLE dbo.audit (
        id        INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
        at        NVARCHAR(40)   NOT NULL,
-       role      NVARCHAR(16)   NOT NULL,
+       role      NVARCHAR(32)   NOT NULL,
        ip        NVARCHAR(64)   NULL,
        action    NVARCHAR(40)   NOT NULL,
        entity_id NVARCHAR(64)   NULL,
@@ -443,6 +447,22 @@ async function ensureColumn(table, name, columnDdl) {
      ALTER TABLE dbo.${table} ADD ${columnDdl}`);
 }
 
+// يوسّع sessions.role وaudit.role إلى NVARCHAR(32) إن كانا أضيق. idempotent، ولا يفشل
+// الإقلاع لو لم تملك الصلاحية: يكتفي بتحذير يشير إلى ملف الـ migration لتشغيله يدويًا.
+async function widenRoleColumns() {
+  for (const table of ['sessions', 'audit']) {
+    try {
+      await pool.request().query(
+        `IF EXISTS (SELECT 1 FROM sys.columns
+                    WHERE object_id = OBJECT_ID('dbo.${table}') AND name = 'role' AND max_length < 64)
+         ALTER TABLE dbo.${table} ALTER COLUMN role NVARCHAR(32) NOT NULL`);
+    } catch (err) {
+      console.warn(`تحذير: تعذّر توسيع عمود dbo.${table}.role تلقائيًا (${err.message}). ` +
+                   'شغّل migrations/001-widen-role-columns.sql بحساب يملك صلاحية ALTER.');
+    }
+  }
+}
+
 async function close() {
   if (pool) { await pool.close(); pool = null; }
 }
@@ -490,8 +510,14 @@ const DEFAULT_ROLE_USERS = [
   { username: 'مدير_الاليات',              role: 'fleet_manager',          fullName: 'مدير الآليات' },
   { username: 'المازوت',                   role: 'fuel',                   fullName: 'حساب المازوت' },
   { username: 'مدير_مستودع_المازوت',        role: 'fuel_warehouse_manager', fullName: 'مدير مستودع المازوت' },
-  { username: 'مسؤول_الموارد_البشرية',      role: 'hr',                     fullName: 'مسؤول الموارد البشرية' }
+  { username: 'مسؤول_الموارد_البشرية',      role: 'hr',                     fullName: 'مسؤول الموارد البشرية' },
+  { username: 'منسق_حركة_الاليات',          role: 'fleet_coordinator',      fullName: 'منسق حركة الآليات' }
 ];
+
+// حساب المنسق أُضيف بعد أول إصدار: في قاعدة قائمة يُزرع مرة واحدة فقط إن لم يوجد أي
+// مستخدم بدور fleet_coordinator ولا بهذا الاسم (الحسابات الأخرى لا تُمس إطلاقًا).
+const COORDINATOR_DEFAULT = DEFAULT_ROLE_USERS.find(d => d.role === 'fleet_coordinator');
+
 
 /**
  * عند أول تشغيل: تُنشأ حسابات شخصية افتراضية بكلمات مرور عشوائية تُعرض مرة واحدة.
@@ -518,6 +544,11 @@ async function seedUsers(adminPassword) {
         out[def.username] = plain;
       }
     }
+  }
+  if (!noUsersYet && !(await listUsers()).some(u => u.role === 'fleet_coordinator') && !(await getUserByUsername(COORDINATOR_DEFAULT.username))) {
+    const plain = randomPassword();
+    await insertUser({ username: COORDINATOR_DEFAULT.username, passwordHash: hashPassword(plain), role: 'fleet_coordinator', fullName: COORDINATOR_DEFAULT.fullName });
+    out[COORDINATOR_DEFAULT.username] = plain;
   }
   if (!(await getUserByUsername('admin'))) {
     await insertUser({ username: 'admin', passwordHash: hashPassword(adminPassword || 'sald2024'), role: 'admin', fullName: 'المدير العام' });
@@ -631,7 +662,7 @@ async function login(username, password, ip) {
   await q(`INSERT INTO dbo.sessions (token, user_id, username, role, created_at, expires_at)
            VALUES (@t,@uid,@un,@r,@c,@e)`,
     [['t', NV(128), token], ['uid', NV(64), row.id], ['un', NV(120), row.username],
-     ['r', NV(16), row.role], ['c', NV(40), now.toISOString()], ['e', NV(40), exp.toISOString()]]);
+     ['r', NV(32), row.role], ['c', NV(40), now.toISOString()], ['e', NV(40), exp.toISOString()]]);
   return { token, userId: row.id, username: row.username, role: row.role, expiresAt: exp.toISOString() };
 }
 
@@ -666,7 +697,7 @@ async function audit(actor, ip, action, entityId, detail) {
            VALUES (@at,@un,@role,@ip,@action,@eid,@detail)`,
     [['at', NV(40), new Date().toISOString()],
      ['un', NV(120), username],
-     ['role', NV(16), role],
+     ['role', NV(32), role],
      ['ip', NV(64), ip || '-'],
      ['action', NV(40), action],
      ['eid', NV(64), entityId || null],
@@ -874,7 +905,7 @@ async function updateEntry(id, data) {
      ['rd', NV(10), done ? (data.returnDate || data.dateKey) : null],
      ['rt', NV(5), done ? data.returnTime : null],
      ['km', FLT, done ? Number(data.km) : null],
-     ['ni', NV(400), done ? (data.notesIn || '') : ''],
+     ['ni', NV(400), data.notesIn || ''],        // لا تضيع ملاحظة العودة عند تعديل سجل غير مكتمل
      ['st', NV(8), done ? 'done' : 'out'],
      ['ua', NV(40), new Date().toISOString()], ['id', NV(64), String(id)]]);
 
