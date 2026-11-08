@@ -37,6 +37,32 @@ let db = null;
 /* ------------------------------------------------------------- الإعداد */
 
 // يقبل نفس شكل الخيارات الذي يقبله محرّك Mongo، ليستدعيهما الخادم بنفس السطر.
+// تبريرات تنبيهات تجاوز المسافة. صف لكل (رحلة، نوع تنبيه): الحالة المخزَّنة الوحيدة 'justified'
+// (الحالة «بانتظار التبرير» pending مشتقّة: تنبيه قائم بلا صف). الصف لا يُعدَّل ولا يُحذف —
+// المفتاح الفريد يمنع استبدال تبرير سابق، والأرقام (المسافة والحد) لقطة وقت التبرير.
+const ALERT_JUSTIFICATIONS_DDL = `
+  CREATE TABLE IF NOT EXISTS alert_justifications (
+    id            TEXT PRIMARY KEY,
+    entry_id      TEXT NOT NULL,
+    alert_type    TEXT NOT NULL DEFAULT 'distance',
+    status        TEXT NOT NULL DEFAULT 'justified' CHECK (status IN ('justified')),
+    vehicle       TEXT NOT NULL,
+    driver        TEXT NOT NULL,
+    customer      TEXT NOT NULL,
+    trip_date     TEXT NOT NULL,
+    depart_time   TEXT,
+    return_date   TEXT,
+    return_time   TEXT,
+    distance_km   REAL NOT NULL,
+    limit_km      REAL NOT NULL,
+    justification TEXT NOT NULL,
+    justified_by  TEXT NOT NULL,
+    justified_at  TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS ux_alert_just_entry ON alert_justifications(entry_id, alert_type);
+  CREATE INDEX IF NOT EXISTS ix_alert_just_at ON alert_justifications(justified_at);
+`;
+
 function init(options) {
   const dataDir = (options && options.dataDir) || options;
   fs.mkdirSync(dataDir, { recursive: true });
@@ -47,6 +73,10 @@ function init(options) {
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA foreign_keys = ON');
   db.exec('PRAGMA busy_timeout = 5000');
+
+  // قاعدة جديدة كليًا؟ (لا جدول entries قبل هذا الإقلاع). جدول التبريرات الجديد يُنشأ
+  // مع القواعد الجديدة فقط؛ القواعد القائمة لا تُعدَّل تلقائيًا (migrations/003-alert-justifications.sql).
+  const freshDb = !db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='entries'`).get();
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS vehicles (
@@ -188,6 +218,8 @@ function init(options) {
     );
     CREATE INDEX IF NOT EXISTS idx_guest_visits_status ON guest_visits(status);
   `);
+
+  if (freshDb) db.exec(ALERT_JUSTIFICATIONS_DDL);
 
   // لا يوجد نظام migration عام هنا: الجداول القديمة (sessions، audit، vehicles،
   // entries) قد تكون أُنشئت قبل إضافة هذه الحقول، فنضيف الأعمدة الناقصة يدويًا.
@@ -905,6 +937,67 @@ function lastDispenserMeterReading() {
   return r ? Number(r.dispenser_meter) : null;
 }
 
+/* ------------------------------------------- تنبيهات المسافة: الحد والتبريرات */
+
+const ALERT_LIMIT_KEY = 'alert_distance_limit_km';
+
+// الحد بالكيلومتر (يحدّده مدير الآليات). null = لم يُحدَّد بعد → لا تنبيهات مسافة.
+function getAlertDistanceLimit() {
+  const v = getSetting(ALERT_LIMIT_KEY);
+  const n = v === null ? NaN : Number(v);
+  return isFinite(n) && n > 0 ? n : null;
+}
+function setAlertDistanceLimit(km) { setSetting(ALERT_LIMIT_KEY, Number(km)); }
+
+// هل جدول التبريرات موجود؟ فحص قراءة فقط. الموجب يُخزَّن، والسالب يُعاد فحصه كل 30 ثانية
+// فيُلتقط تطبيق الـ migration دون إعادة تشغيل.
+let _alertsOk = false, _alertsChecked = 0;
+function alertsSupported() {
+  if (_alertsOk) return true;
+  const now = Date.now();
+  if (_alertsChecked && now - _alertsChecked < 30000) return false;
+  _alertsChecked = now;
+  _alertsOk = !!db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='alert_justifications'`).get();
+  return _alertsOk;
+}
+
+function alertJustificationOut(r) {
+  return {
+    id: r.id, entryId: r.entry_id, alertType: r.alert_type, status: r.status,
+    vehicle: r.vehicle, driver: r.driver, customer: r.customer,
+    dateKey: r.trip_date, departTime: r.depart_time, returnDate: r.return_date, returnTime: r.return_time,
+    distance: r.distance_km, limitKm: r.limit_km,
+    justification: r.justification, justifiedBy: r.justified_by, justifiedAt: r.justified_at
+  };
+}
+
+function listAlertJustifications() {
+  return db.prepare('SELECT * FROM alert_justifications ORDER BY justified_at DESC').all().map(alertJustificationOut);
+}
+
+// { record } عند النجاح، { error: 'duplicate', record } إن سبق تبرير هذه الرحلة (لا استبدال).
+function insertAlertJustification(d) {
+  const type = d.alertType || 'distance';
+  const prior = db.prepare('SELECT * FROM alert_justifications WHERE entry_id = ? AND alert_type = ?').get(String(d.entryId), type);
+  if (prior) return { error: 'duplicate', record: alertJustificationOut(prior) };
+  const id = newId('aj');
+  try {
+    db.prepare(`INSERT INTO alert_justifications (id, entry_id, alert_type, status, vehicle, driver, customer, trip_date,
+                  depart_time, return_date, return_time, distance_km, limit_km, justification, justified_by, justified_at)
+                VALUES (?,?,?,'justified',?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .run(id, String(d.entryId), type, d.vehicle, d.driver, d.customer, d.dateKey,
+           d.departTime || null, d.returnDate || null, d.returnTime || null,
+           Number(d.distance), Number(d.limitKm), String(d.justification), d.justifiedBy, new Date().toISOString());
+  } catch (e) {
+    if (/UNIQUE/i.test(String(e && e.message))) {
+      return { error: 'duplicate', record: alertJustificationOut(
+        db.prepare('SELECT * FROM alert_justifications WHERE entry_id = ? AND alert_type = ?').get(String(d.entryId), type)) };
+    }
+    throw e;
+  }
+  return { record: alertJustificationOut(db.prepare('SELECT * FROM alert_justifications WHERE id = ?').get(id)) };
+}
+
 /* ---------------------------------------------------------- آليات الضيوف */
 
 function guestVisitOut(r) {
@@ -1022,5 +1115,6 @@ module.exports = {
   insertFuelFill, listFuelFills, listFuelFillsRange, insertFuelSupply, listFuelSupply, lastWorkHoursForVehicle, lastDispenserMeterReading,
   getFuelFillByClientRef, getFuelSupplyByClientRef,
   lastFuelMeterReading, getFuelBaseline, setFuelBaseline,
-  listGuestVisits, insertGuestVisit, closeGuestVisit, guestVisitTypeSupported, guestVisitStats
+  listGuestVisits, insertGuestVisit, closeGuestVisit, guestVisitTypeSupported, guestVisitStats,
+  getAlertDistanceLimit, setAlertDistanceLimit, alertsSupported, listAlertJustifications, insertAlertJustification
 };
