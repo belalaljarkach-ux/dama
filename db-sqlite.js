@@ -181,7 +181,10 @@ function init(options) {
       date_out    TEXT,
       time_out    TEXT,
       status      TEXT NOT NULL CHECK (status IN ('in','out')),
-      created_by  TEXT
+      created_by  TEXT,
+      -- زبون | ضيف. يُنشأ مع الجدول في القواعد الجديدة فقط؛ القواعد القائمة لا
+      -- تُعدَّل تلقائيًا (انظر migrations/002-add-guest-visit-type.sql).
+      visit_type  TEXT NOT NULL DEFAULT 'guest' CHECK (visit_type IN ('customer','guest'))
     );
     CREATE INDEX IF NOT EXISTS idx_guest_visits_status ON guest_visits(status);
   `);
@@ -909,8 +912,41 @@ function guestVisitOut(r) {
     id: r.id, vehicleDesc: r.vehicle_desc, purpose: r.purpose,
     dateIn: r.date_in, timeIn: r.time_in,
     dateOut: r.date_out, timeOut: r.time_out,
-    status: r.status, createdBy: r.created_by
+    status: r.status, createdBy: r.created_by,
+    visitType: r.visit_type === 'customer' ? 'customer' : 'guest'
   };
+}
+
+// هل عمود visit_type موجود؟ فحص قراءة فقط (لا نعدّل القاعدة). النتيجة الموجبة تُخزَّن،
+// والسالبة تُعاد فحصها كل 30 ثانية كي يُلتقط تطبيق الـ migration دون إعادة تشغيل.
+let _visitTypeOk = false, _visitTypeChecked = 0;
+function guestVisitTypeSupported() {
+  if (_visitTypeOk) return true;
+  const now = Date.now();
+  if (_visitTypeChecked && now - _visitTypeChecked < 30000) return false;
+  _visitTypeChecked = now;
+  _visitTypeOk = db.prepare(`SELECT name FROM pragma_table_info('guest_visits')`).all()
+    .some(c => c.name === 'visit_type');
+  return _visitTypeOk;
+}
+
+// إحصاءات الزبائن/الضيوف من كل السجلات (كل مستخدمي البوابة، بلا نافذة أيام).
+// since = { date, time } بداية اليوم التشغيلي الحالي. عمود النوع غائب → الكل «ضيف».
+function guestVisitStats(since) {
+  const supported = guestVisitTypeSupported();
+  const t = supported ? `COALESCE(visit_type,'guest')` : `'guest'`;
+  const out = { typeSupported: supported, customers: 0, guests: 0, todayCustomers: 0, todayGuests: 0 };
+  for (const r of db.prepare(`SELECT ${t} AS t, COUNT(*) AS n FROM guest_visits GROUP BY ${t}`).all()) {
+    if (r.t === 'customer') out.customers += r.n; else out.guests += r.n;
+  }
+  if (since && since.date) {
+    for (const r of db.prepare(`SELECT ${t} AS t, COUNT(*) AS n FROM guest_visits
+                                WHERE date_in > ? OR (date_in = ? AND time_in >= ?) GROUP BY ${t}`)
+                      .all(since.date, since.date, since.time || '00:00')) {
+      if (r.t === 'customer') out.todayCustomers += r.n; else out.todayGuests += r.n;
+    }
+  }
+  return out;
 }
 
 // الضيوف بالموقع الآن دائمًا + من خرج خلال آخر `days` يومًا — نفس مبدأ listEntries.
@@ -927,9 +963,15 @@ function listGuestVisits(days) {
 
 function insertGuestVisit(data) {
   const id = newId('g');
-  db.prepare(`INSERT INTO guest_visits (id, vehicle_desc, purpose, date_in, time_in, date_out, time_out, status, created_by)
-              VALUES (?,?,?,?,?,NULL,NULL,'in',?)`)
-    .run(id, String(data.vehicleDesc).trim(), String(data.purpose).trim(), data.dateIn, data.timeIn, data.createdBy || null);
+  const base = [id, String(data.vehicleDesc).trim(), String(data.purpose).trim(), data.dateIn, data.timeIn, data.createdBy || null];
+  if (guestVisitTypeSupported()) {
+    db.prepare(`INSERT INTO guest_visits (id, vehicle_desc, purpose, date_in, time_in, date_out, time_out, status, created_by, visit_type)
+                VALUES (?,?,?,?,?,NULL,NULL,'in',?,?)`)
+      .run(...base, data.visitType === 'customer' ? 'customer' : 'guest');
+  } else {
+    db.prepare(`INSERT INTO guest_visits (id, vehicle_desc, purpose, date_in, time_in, date_out, time_out, status, created_by)
+                VALUES (?,?,?,?,?,NULL,NULL,'in',?)`).run(...base);
+  }
   const r = db.prepare('SELECT * FROM guest_visits WHERE id = ?').get(id);
   return guestVisitOut(r);
 }
@@ -980,5 +1022,5 @@ module.exports = {
   insertFuelFill, listFuelFills, listFuelFillsRange, insertFuelSupply, listFuelSupply, lastWorkHoursForVehicle, lastDispenserMeterReading,
   getFuelFillByClientRef, getFuelSupplyByClientRef,
   lastFuelMeterReading, getFuelBaseline, setFuelBaseline,
-  listGuestVisits, insertGuestVisit, closeGuestVisit
+  listGuestVisits, insertGuestVisit, closeGuestVisit, guestVisitTypeSupported, guestVisitStats
 };

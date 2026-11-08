@@ -425,7 +425,11 @@ async function createSchema() {
        date_out     NVARCHAR(10)  NULL,
        time_out     NVARCHAR(5)   NULL,
        status       NVARCHAR(8)   NOT NULL CONSTRAINT ck_guest_visits_status CHECK (status IN (N'in', N'out')),
-       created_by   NVARCHAR(120) NULL
+       created_by   NVARCHAR(120) NULL,
+       -- زبون | ضيف. يُنشأ مع الجدول في القواعد الجديدة فقط؛ القواعد القائمة لا تُعدَّل
+       -- تلقائيًا (انظر migrations/002-add-guest-visit-type.sql).
+       visit_type   NVARCHAR(8)   NOT NULL CONSTRAINT df_guest_visits_type DEFAULT N'guest'
+                      CONSTRAINT ck_guest_visits_type CHECK (visit_type IN (N'customer', N'guest'))
      )`,
 
     `IF NOT EXISTS (SELECT 1 FROM sys.indexes
@@ -1225,8 +1229,41 @@ function guestVisitOut(r) {
     id: r.id, vehicleDesc: r.vehicle_desc, purpose: r.purpose,
     dateIn: r.date_in, timeIn: r.time_in,
     dateOut: r.date_out, timeOut: r.time_out,
-    status: r.status, createdBy: r.created_by
+    status: r.status, createdBy: r.created_by,
+    visitType: r.visit_type === 'customer' ? 'customer' : 'guest'
   };
+}
+
+// هل عمود visit_type موجود؟ فحص قراءة فقط (لا نعدّل القاعدة). النتيجة الموجبة تُخزَّن،
+// والسالبة تُعاد فحصها كل 30 ثانية كي يُلتقط تطبيق الـ migration دون إعادة تشغيل.
+let _visitTypeOk = false, _visitTypeChecked = 0;
+async function guestVisitTypeSupported() {
+  if (_visitTypeOk) return true;
+  const now = Date.now();
+  if (_visitTypeChecked && now - _visitTypeChecked < 30000) return false;
+  _visitTypeChecked = now;
+  const r = await one(`SELECT COL_LENGTH('dbo.guest_visits','visit_type') AS len`);
+  _visitTypeOk = !!(r && r.len !== null && r.len !== undefined);
+  return _visitTypeOk;
+}
+
+// إحصاءات الزبائن/الضيوف من كل السجلات (كل مستخدمي البوابة، بلا نافذة أيام).
+// since = { date, time } بداية اليوم التشغيلي الحالي. عمود النوع غائب → الكل «ضيف».
+async function guestVisitStats(since) {
+  const supported = await guestVisitTypeSupported();
+  const t = supported ? `ISNULL(visit_type, N'guest')` : `N'guest'`;
+  const out = { typeSupported: supported, customers: 0, guests: 0, todayCustomers: 0, todayGuests: 0 };
+  for (const r of await all(`SELECT ${t} AS t, COUNT(*) AS n FROM dbo.guest_visits GROUP BY ${t}`)) {
+    if (r.t === 'customer') out.customers += r.n; else out.guests += r.n;
+  }
+  if (since && since.date) {
+    for (const r of await all(`SELECT ${t} AS t, COUNT(*) AS n FROM dbo.guest_visits
+                               WHERE date_in > @d OR (date_in = @d AND time_in >= @t) GROUP BY ${t}`,
+      [['d', NV(10), since.date], ['t', NV(5), since.time || '00:00']])) {
+      if (r.t === 'customer') out.todayCustomers += r.n; else out.todayGuests += r.n;
+    }
+  }
+  return out;
 }
 
 // الضيوف بالموقع الآن دائمًا + من خرج خلال آخر `days` يومًا — نفس مبدأ listEntries.
@@ -1245,12 +1282,18 @@ async function listGuestVisits(days) {
 
 async function insertGuestVisit(data) {
   const id = newId('g');
-  await q(`INSERT INTO dbo.guest_visits (id, vehicle_desc, purpose, date_in, time_in, date_out, time_out, status, created_by)
-           VALUES (@id,@vd,@p,@di,@ti,NULL,NULL,N'in',@cb)`,
-    [['id', NV(64), id], ['vd', NV(200), String(data.vehicleDesc).trim()],
+  const params = [['id', NV(64), id], ['vd', NV(200), String(data.vehicleDesc).trim()],
      ['p', NV(300), String(data.purpose).trim()],
      ['di', NV(10), data.dateIn], ['ti', NV(5), data.timeIn],
-     ['cb', NV(120), data.createdBy || null]]);
+     ['cb', NV(120), data.createdBy || null]];
+  if (await guestVisitTypeSupported()) {
+    params.push(['vt', NV(8), data.visitType === 'customer' ? 'customer' : 'guest']);
+    await q(`INSERT INTO dbo.guest_visits (id, vehicle_desc, purpose, date_in, time_in, date_out, time_out, status, created_by, visit_type)
+             VALUES (@id,@vd,@p,@di,@ti,NULL,NULL,N'in',@cb,@vt)`, params);
+  } else {
+    await q(`INSERT INTO dbo.guest_visits (id, vehicle_desc, purpose, date_in, time_in, date_out, time_out, status, created_by)
+             VALUES (@id,@vd,@p,@di,@ti,NULL,NULL,N'in',@cb)`, params);
+  }
   return guestVisitOut(await one('SELECT * FROM dbo.guest_visits WHERE id = @id', [['id', NV(64), id]]));
 }
 
@@ -1315,5 +1358,5 @@ module.exports = {
   insertFuelFill, listFuelFills, listFuelFillsRange, insertFuelSupply, listFuelSupply, lastWorkHoursForVehicle, lastDispenserMeterReading,
   getFuelFillByClientRef, getFuelSupplyByClientRef,
   lastFuelMeterReading, getFuelBaseline, setFuelBaseline,
-  listGuestVisits, insertGuestVisit, closeGuestVisit
+  listGuestVisits, insertGuestVisit, closeGuestVisit, guestVisitTypeSupported, guestVisitStats
 };

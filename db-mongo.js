@@ -997,10 +997,32 @@ async function insertGuestVisit(data) {
     purpose: String(data.purpose).trim(),
     dateIn: data.dateIn, timeIn: data.timeIn,
     dateOut: null, timeOut: null,
-    status: 'in', createdBy: data.createdBy || null
+    status: 'in', createdBy: data.createdBy || null,
+    visitType: data.visitType === 'customer' ? 'customer' : 'guest'
   };
   await col.guestVisits.insertOne(doc);
   return stripId(doc);
+}
+
+// MongoDB بلا مخطط ثابت: حقل visitType يعمل دائمًا ولا يحتاج migration.
+async function guestVisitTypeSupported() { return true; }
+
+// إحصاءات الزبائن/الضيوف من كل السجلات (كل مستخدمي البوابة، بلا نافذة أيام).
+// since = { date, time } بداية اليوم التشغيلي الحالي. مستند بلا visitType (قديم) = «ضيف».
+async function guestVisitStats(since) {
+  const out = { typeSupported: true, customers: 0, guests: 0, todayCustomers: 0, todayGuests: 0 };
+  const grp = [{ $group: { _id: { $ifNull: ['$visitType', 'guest'] }, n: { $sum: 1 } } }];
+  for (const r of await col.guestVisits.aggregate(grp).toArray()) {
+    if (r._id === 'customer') out.customers += r.n; else out.guests += r.n;
+  }
+  if (since && since.date) {
+    const t = since.time || '00:00';
+    const match = { $match: { $or: [{ dateIn: { $gt: since.date } }, { dateIn: since.date, timeIn: { $gte: t } }] } };
+    for (const r of await col.guestVisits.aggregate([match, ...grp]).toArray()) {
+      if (r._id === 'customer') out.todayCustomers += r.n; else out.todayGuests += r.n;
+    }
+  }
+  return out;
 }
 
 /**
@@ -1062,5 +1084,5 @@ module.exports = {
   insertFuelFill, listFuelFills, listFuelFillsRange, insertFuelSupply, listFuelSupply, lastWorkHoursForVehicle, lastDispenserMeterReading,
   getFuelFillByClientRef, getFuelSupplyByClientRef,
   lastFuelMeterReading, getFuelBaseline, setFuelBaseline,
-  listGuestVisits, insertGuestVisit, closeGuestVisit
+  listGuestVisits, insertGuestVisit, closeGuestVisit, guestVisitTypeSupported, guestVisitStats
 };

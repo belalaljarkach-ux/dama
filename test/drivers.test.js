@@ -34,7 +34,8 @@ const REQUIRED = [
   'insertFuelFill', 'listFuelFills', 'listFuelFillsRange', 'insertFuelSupply', 'listFuelSupply',
   'getFuelFillByClientRef', 'getFuelSupplyByClientRef',
   'lastFuelMeterReading', 'getFuelBaseline', 'setFuelBaseline', 'lastWorkHoursForVehicle', 'lastDispenserMeterReading',
-  'listGuestVisits', 'insertGuestVisit', 'closeGuestVisit'
+  'listGuestVisits', 'insertGuestVisit', 'closeGuestVisit',
+  'guestVisitTypeSupported', 'guestVisitStats'
 ];
 
 const drivers = {

@@ -277,10 +277,20 @@ async function route(req, res, url) {
     const days = url.searchParams.has('days')
       ? Number(url.searchParams.get('days'))
       : DEFAULT_WINDOW_DAYS;
+    // إحصاءات الزبائن/الضيوف تُحسب من كل السجلات (كل مستخدمي البوابة) وللأدمن وحده —
+    // لا تتأثر بنافذة الأيام ولا بمن سجّل. اليوم التشغيلي يبدأ الساعة config.dayStartHour.
+    let guestStats = null;
+    if (actor.role === 'admin') {
+      const opDay = reportsCore.currentOpDay(new Date(), config.dayStartHour);
+      guestStats = await db.guestVisitStats({
+        date: opDay, time: String(config.dayStartHour).padStart(2, '0') + ':00' });
+    }
     return json(res, 200, {
       role: actor.role,
       username: actor.username,
       permissions: permissionsFor(actor.role),
+      guestVisitTypeSupported: await db.guestVisitTypeSupported(),
+      guestStats,
       entries: await db.listEntries(days),
       vehicles: await db.listVehicles(),
       drivers: await db.listDrivers(),
@@ -447,8 +457,15 @@ async function route(req, res, url) {
     const purpose = requireText(b.purpose, 'جهة الزيارة');
     const dateIn = requireDate(b.dateIn || new Date().toISOString().slice(0, 10), 'التاريخ');
     const timeIn = requireTime(b.timeIn, 'وقت الدخول');
-    const visit = await db.insertGuestVisit({ vehicleDesc, purpose, dateIn, timeIn, createdBy: actor.username });
-    await db.audit(actor, clientIp(req), 'guest_in', visit.id, { vehicleDesc, purpose });
+    // نوع الزيارة: زبون | ضيف (الافتراضي ضيف كما كان). «زبون» يحتاج عمود visit_type؛ لو لم
+    // يُطبَّق migration 002 بعد نرفضه صراحةً بدل أن نسجّله ضيفًا بصمت فتفسد الإحصاءات.
+    const visitType = str(b.visitType, 16) || 'guest';
+    if (visitType !== 'guest' && visitType !== 'customer') throw badRequest('نوع الزيارة غير صحيح.');
+    if (visitType === 'customer' && !(await db.guestVisitTypeSupported())) {
+      return fail(res, 409, 'تسجيل «زبون» غير مفعّل بعد: يجب تطبيق migrations/002-add-guest-visit-type.sql على قاعدة البيانات.');
+    }
+    const visit = await db.insertGuestVisit({ vehicleDesc, purpose, dateIn, timeIn, visitType, createdBy: actor.username });
+    await db.audit(actor, clientIp(req), 'guest_in', visit.id, { vehicleDesc, purpose, visitType });
     return json(res, 201, { visit });
   }
 

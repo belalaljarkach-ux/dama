@@ -93,6 +93,7 @@
   }
   .kpi .n{font-size:20px;font-weight:900;display:block;}
   .kpi .l{font-size:12px;color:#D9C89C;}
+  .kpi .l.sub{display:block;font-size:11px;opacity:.8;}
   .kpi.alert-kpi{background:rgba(178,51,39,.35);border-color:rgba(178,51,39,.6);}
   .kpi.out-kpi{background:rgba(185,162,118,.35);border-color:rgba(185,162,118,.65);}
   .kpi.warn-kpi{background:rgba(178,51,39,.18);border-color:rgba(178,51,39,.45);}
@@ -407,6 +408,13 @@
     <div class="card">
       <div class="card-head"><h2>تسجيل دخول ضيف</h2></div>
       <form id="guest-form" class="form-grid" novalidate>
+        <div class="field field-wide" id="g-type-field" hidden>
+          <label for="g-type">نوع الزيارة</label>
+          <select id="g-type">
+            <option value="guest">ضيف</option>
+            <option value="customer">زبون</option>
+          </select>
+        </div>
         <div class="field field-wide">
           <label for="g-vehicle">وصف المركبة</label>
           <input id="g-vehicle" placeholder="مثال: سيارة توصيل — لوحة ١٢٣" required>
@@ -828,6 +836,8 @@ let fuelFills   = [];
 let fuelSupply  = [];
 let fuelBaseline = {}; // { tank1: {initialQty,initialMeter}|null, tank2: ..., tank3: ... }
 let guestVisits = [];
+let guestStats = null;               // من /api/state للأدمن فقط: { typeSupported, customers, guests, todayCustomers, todayGuests }
+let guestTypeSupported = false;      // هل يقبل الخادم تسجيل «زبون» (عمود visit_type مُطبَّق)
 let currentRole = null;        // gate | fleet_manager | fleet_coordinator | fuel | admin | fuel_warehouse_manager | hr
 let userPermissions = {};      // من /api/state — editFullRecord (تعديل السجل الكامل: مدير الآليات وحده)
 let currentUsername = null;
@@ -1351,6 +1361,8 @@ async function refresh(){
   fuelSupply = data.fuelSupply || [];
   fuelBaseline = data.fuelBaseline || {};
   guestVisits = data.guestVisits || [];
+  guestStats = data.guestStats || null;
+  guestTypeSupported = !!data.guestVisitTypeSupported;
   if(Number.isInteger(data.dayStartHour) && data.dayStartHour >= 0 && data.dayStartHour <= 23){
     DAY_START_HOUR = data.dayStartHour;
   }
@@ -1519,6 +1531,12 @@ function renderHero(alertIds){
   if(isFleetRole() || currentRole === 'admin'){
     cards.push(`<div class="kpi"><span class="n">${st.customersToday}</span><span class="l">عداد الزبائن اليومي</span></div>`);
     cards.push(`<div class="kpi alert-kpi"><span class="n">${st.alertsToday}</span><span class="l">تنبيهات نشطة اليوم التشغيلي</span></div>`);
+    // الزبائن والضيوف المسجَّلون من حسابات البوابة كلها (أرقام فعلية من قاعدة البيانات) — للأدمن.
+    if(currentRole === 'admin' && guestStats){
+      const note = guestStats.typeSupported ? '' : ' title="تطبيق migration 002 مطلوب للتمييز بين الزبون والضيف"';
+      cards.push(`<div class="kpi" id="kpi-customers"${note}><span class="n">${guestStats.customers}</span><span class="l">عدد الزبائن</span><span class="l sub">اليوم التشغيلي: ${guestStats.todayCustomers}</span></div>`);
+      cards.push(`<div class="kpi" id="kpi-guests"${note}><span class="n">${guestStats.guests}</span><span class="l">عدد الضيوف</span><span class="l sub">اليوم التشغيلي: ${guestStats.todayGuests}</span></div>`);
+    }
   }else{
     cards.push(`<div class="kpi"><span class="n">${vehicles.length}</span><span class="l">آلية مسجّلة</span></div>`);
   }
@@ -1615,11 +1633,13 @@ function renderGuestList(){
   const inside = allGuestVisits().filter(v=>v.status==='in')
     .sort((a,b)=> (b.dateIn+b.timeIn).localeCompare(a.dateIn+a.timeIn));
   $('guest-count').textContent = inside.length;
+  $('g-type-field').hidden = !guestTypeSupported;
   if(!inside.length){ box.innerHTML = '<p class="empty">لا يوجد ضيوف بالموقع الآن.</p>'; return; }
   box.innerHTML = inside.map(v=>`
     <div class="out-row ${v._pending?'pending':''}">
       <div class="out-info">
         <div class="veh">${escapeHtml(v.vehicleDesc)}${
+          guestTypeSupported ? ` <span class="badge ${v.visitType==='customer' ? 'badge-ok' : 'badge-warn'}">${v.visitType==='customer' ? 'زبون' : 'ضيف'}</span>` : ''}${
           v._pending ? ' <span class="badge badge-pending">بانتظار الإرسال</span>' : ''}</div>
         <div class="cust">${escapeHtml(v.purpose)}</div>
         <div class="meta">دخل ${fmtTime12(v.timeIn)} · ${v.dateIn}</div>
@@ -1640,6 +1660,7 @@ async function submitGuestIn(ev){
     return;
   }
   const payload = { vehicleDesc, purpose, dateIn: todayKey(), timeIn: nowTime() };
+  if(guestTypeSupported) payload.visitType = $('g-type').value === 'customer' ? 'customer' : 'guest';
   try{
     await api('POST', '/api/guests', payload);
     $('guest-form').reset();
