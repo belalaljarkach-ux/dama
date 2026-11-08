@@ -114,12 +114,44 @@ const EDIT_FULL_RECORD_ROLES = ['fleet_manager'];
 
 // حذف العملية (DELETE /api/entries/:id): لمدير الآليات وحده — لا يملكه المنسق.
 const DELETE_ENTRY_ROLES = ['fleet_manager'];
+
+// تنبيهات تجاوز المسافة: ضبط حدّ الكيلومترات وكتابة التبرير لمدير الآليات وحده (المنسق يرى
+// القائمة للاطلاع فقط، والأدمن يراجع المبرَّر منها). تُفرض في الخادم؛ الواجهة تقرأ permissions للإظهار.
+const SET_ALERT_LIMIT_ROLES = ['fleet_manager'];
+const JUSTIFY_ALERT_ROLES = ['fleet_manager'];
+const MAX_ALERT_LIMIT_KM = 1000000;
+const MAX_JUSTIFICATION_LEN = 1000;
 function permissionsFor(role) {
   return {
     editFullRecord: EDIT_FULL_RECORD_ROLES.includes(role),
-    deleteEntry: DELETE_ENTRY_ROLES.includes(role)
+    deleteEntry: DELETE_ENTRY_ROLES.includes(role),
+    setAlertLimit: SET_ALERT_LIMIT_ROLES.includes(role),
+    justifyAlerts: JUSTIFY_ALERT_ROLES.includes(role)
   };
 }
+// رحلات تجاوزت حدّ المسافة (بالكيلومتر) ضمن النافذة، بمسافة السلسلة نفسها المستعملة في التقارير.
+// بلا حد محدَّد → لا تنبيهات. تُحسب في الخادم كي يُتحقَّق منها عند حفظ التبرير.
+async function computeDistanceAlerts() {
+  const limit = await db.getAlertDistanceLimit();
+  if (limit === null) return { limit, alerts: [] };
+  const today = reportsCore.currentOpDay(new Date(), config.dayStartHour);
+  const plan = reportsCore.planRange(today, today, DEFAULT_WINDOW_DAYS);
+  const [rows, vehicles] = await Promise.all([db.listEntriesRange(plan.lookbackFrom, plan.readTo), db.listVehicles()]);
+  const seen = new Set();
+  const done = rows.filter(e => e.status === 'done' && !seen.has(e.id) && seen.add(e.id));
+  const alerts = reportsCore.enrichTrips(done, vehicles, plan.lookbackFrom)
+    .filter(e => e._distance !== null && e._distance !== undefined && e._distance > limit)
+    .map(e => ({
+      entryId: e.id, vehicle: e.vehicle, driver: e.driver, customer: e.customer,
+      dateKey: e.dateKey, departTime: e.departTime, returnDate: e.returnDate || null, returnTime: e.returnTime || null,
+      opDay: reportsCore.opDayOfEntry(e, config.dayStartHour), returnOpDay: reportsCore.opDayOfReturn(e, config.dayStartHour),
+      kmEnd: e.km, kmStart: e.km - e._distance, distance: e._distance, limitKm: limit, excess: e._distance - limit,
+      notesOut: e.notesOut || '', notesIn: e.notesIn || '', status: 'pending'
+    }))
+    .sort((a, b) => (b.returnOpDay + (b.returnTime || '')).localeCompare(a.returnOpDay + (a.returnTime || '')));
+  return { limit, alerts };
+}
+
 const VEHICLE_TYPES = ['gabbala', 'pump', 'service', 'silo'];
 const TANKS = ['tank1', 'tank2', 'tank3'];
 
@@ -289,6 +321,9 @@ async function route(req, res, url) {
       role: actor.role,
       username: actor.username,
       permissions: permissionsFor(actor.role),
+      // حدّ تنبيه المسافة بالكيلومتر (null = لم يُحدَّد) — لأدوار التقارير فقط.
+      alertDistanceLimitKm: (FLEET_ROLES.includes(actor.role) || actor.role === 'admin')
+        ? await db.getAlertDistanceLimit() : null,
       guestVisitTypeSupported: await db.guestVisitTypeSupported(),
       guestStats,
       entries: await db.listEntries(days),
@@ -325,6 +360,66 @@ async function route(req, res, url) {
       lookbackFrom: plan.lookbackFrom, startHour: config.dayStartHour
     });
     return json(res, 200, Object.assign(report, { today, serverTime: new Date().toISOString() }));
+  }
+
+  /* ---- تنبيهات تجاوز المسافة: حدّ الكيلومترات والتبرير ---- */
+  // الحالات: pending (تنبيه قائم بلا تبرير — مشتقّة، لا صف لها) → justified (صف في
+  // alert_justifications لا يُعدَّل ولا يُحذف). مدير الآليات يرى المعلّق ويكتب التبرير فيختفي
+  // من قائمته؛ الأدمن يرى المبرَّر مع من كتبه ومتى. كل شيء مُتحقَّق منه هنا لا في الواجهة.
+
+  if (p === '/api/alerts/distance' && m === 'GET') {
+    const actor = await requireRole(req, res, ...FLEET_ROLES, 'admin'); if (!actor) return;
+    const supported = await db.alertsSupported();
+    const { limit, alerts } = await computeDistanceAlerts();
+    const justified = supported ? await db.listAlertJustifications() : [];
+    const done = new Set(justified.filter(j => j.alertType === 'distance').map(j => j.entryId));
+    const pending = alerts.filter(a => !done.has(a.entryId));
+    const base = { limitKm: limit, supported, serverTime: new Date().toISOString() };
+    if (actor.role === 'admin') {
+      return json(res, 200, Object.assign(base, { justified, pendingCount: pending.length }));
+    }
+    return json(res, 200, Object.assign(base, { pending }));
+  }
+
+  if (p === '/api/alerts/distance-limit' && m === 'PUT') {
+    const actor = await requireRole(req, res, ...SET_ALERT_LIMIT_ROLES); if (!actor) return;
+    const b = await readJson(req);
+    const km = Number(b.limitKm);
+    if (!isFinite(km) || km <= 0 || km > MAX_ALERT_LIMIT_KM) {
+      return fail(res, 400, 'حدّ المسافة يجب أن يكون رقمًا أكبر من صفر (بالكيلومتر).');
+    }
+    const before = await db.getAlertDistanceLimit();
+    await db.setAlertDistanceLimit(km);
+    await db.audit(actor, clientIp(req), 'alert_limit_set', 'distance', { before, after: km });
+    return json(res, 200, { limitKm: km });
+  }
+
+  const mJust = p.match(/^\/api\/alerts\/distance\/([\w-]+)\/justify$/);
+  if (mJust && m === 'POST') {
+    const actor = await requireRole(req, res, ...JUSTIFY_ALERT_ROLES); if (!actor) return;
+    const b = await readJson(req);
+    const justification = str(b.justification, MAX_JUSTIFICATION_LEN + 1);
+    if (!justification) return fail(res, 400, 'التبرير مطلوب ولا يمكن حفظه فارغًا.');
+    if (justification.length > MAX_JUSTIFICATION_LEN) return fail(res, 400, `التبرير أطول من ${MAX_JUSTIFICATION_LEN} حرفًا.`);
+    if (!(await db.alertsSupported())) {
+      return fail(res, 409, 'حفظ التبرير غير مفعّل بعد: يجب تطبيق migrations/003-alert-justifications.sql على قاعدة البيانات.');
+    }
+    const { limit, alerts } = await computeDistanceAlerts();
+    if (limit === null) return fail(res, 409, 'لم يُحدَّد حدّ المسافة بعد.');
+    const alert = alerts.find(a => a.entryId === mJust[1]);
+    if (!alert) return fail(res, 404, 'هذه الرحلة ليست تنبيه تجاوز مسافة حاليًا (قد يكون الحد تغيّر أو الرحلة خارج النافذة).');
+    const r = await db.insertAlertJustification({
+      entryId: alert.entryId, alertType: 'distance',
+      vehicle: alert.vehicle, driver: alert.driver, customer: alert.customer,
+      dateKey: alert.dateKey, departTime: alert.departTime, returnDate: alert.returnDate, returnTime: alert.returnTime,
+      distance: alert.distance, limitKm: limit, justification, justifiedBy: actor.username
+    });
+    if (r.error === 'duplicate') return fail(res, 409, 'سبق تبرير هذا التنبيه ولا يُستبدل تبريره.');
+    await db.audit(actor, clientIp(req), 'alert_justify', alert.entryId, {
+      vehicle: alert.vehicle, driver: alert.driver, dateKey: alert.dateKey,
+      distance: alert.distance, limitKm: limit, justification
+    });
+    return json(res, 201, { record: r.record });
   }
 
   /* ---- المغادرة: البوابة والمدير ---- */

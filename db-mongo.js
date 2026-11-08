@@ -168,7 +168,8 @@ async function init(options) {
     drivers:  db.collection('drivers'),
     fuelFills:  db.collection('fuel_fills'),
     fuelSupply: db.collection('fuel_supply'),
-    guestVisits: db.collection('guest_visits')
+    guestVisits: db.collection('guest_visits'),
+    alertJustifications: db.collection('alert_justifications')
   };
 
   // الفهارس. `unique` على اسم الآلية يجعل منع التكرار قاعدة في قاعدة البيانات
@@ -205,6 +206,10 @@ async function init(options) {
   await col.fuelFills.createIndex({ dateKey: -1 });
   await col.fuelFills.createIndex({ vehicle: 1 });
   await col.fuelSupply.createIndex({ dateKey: -1 });
+
+  // تبريرات تنبيهات المسافة: فريد على (entryId, alertType) فلا يُستبدل تبرير سابق.
+  await col.alertJustifications.createIndex({ entryId: 1, alertType: 1 }, { unique: true });
+  await col.alertJustifications.createIndex({ justifiedAt: -1 });
 
   // سجلّ آليات ضيوف: فهرس الحالة فقط، كما في db-sqlite.js (لا قيد تفرّد هنا).
   await col.guestVisits.createIndex({ status: 1 });
@@ -973,6 +978,55 @@ async function lastDispenserMeterReading() {
   return row ? Number(row.dispenserMeter) : null;
 }
 
+/* ------------------------------------------- تنبيهات المسافة: الحد والتبريرات */
+
+const ALERT_LIMIT_KEY = 'alert_distance_limit_km';
+
+// الحد بالكيلومتر (يحدّده مدير الآليات). null = لم يُحدَّد بعد → لا تنبيهات مسافة.
+async function getAlertDistanceLimit() {
+  const v = await getSetting(ALERT_LIMIT_KEY);
+  const n = v === null ? NaN : Number(v);
+  return isFinite(n) && n > 0 ? n : null;
+}
+async function setAlertDistanceLimit(km) { await setSetting(ALERT_LIMIT_KEY, Number(km)); }
+
+// MongoDB بلا مخطط ثابت: المجموعة تُنشأ تلقائيًا ولا تحتاج migration.
+async function alertsSupported() { return true; }
+
+function alertJustificationOut(doc) {
+  if (!doc) return null;
+  const o = stripId(doc);
+  delete o._id;
+  return o;
+}
+
+async function listAlertJustifications() {
+  return (await col.alertJustifications.find({}).sort({ justifiedAt: -1 }).toArray()).map(alertJustificationOut);
+}
+
+// { record } عند النجاح، { error: 'duplicate', record } إن سبق تبرير هذه الرحلة (لا استبدال).
+async function insertAlertJustification(d) {
+  const type = d.alertType || 'distance';
+  const id = newId('aj');
+  const doc = {
+    _id: id, id, entryId: String(d.entryId), alertType: type, status: 'justified',
+    vehicle: d.vehicle, driver: d.driver, customer: d.customer,
+    dateKey: d.dateKey, departTime: d.departTime || null, returnDate: d.returnDate || null, returnTime: d.returnTime || null,
+    distance: Number(d.distance), limitKm: Number(d.limitKm),
+    justification: String(d.justification), justifiedBy: d.justifiedBy, justifiedAt: new Date().toISOString()
+  };
+  try {
+    await col.alertJustifications.insertOne(doc);
+  } catch (e) {
+    if (e && e.code === 11000) {
+      return { error: 'duplicate', record: alertJustificationOut(
+        await col.alertJustifications.findOne({ entryId: String(d.entryId), alertType: type })) };
+    }
+    throw e;
+  }
+  return { record: alertJustificationOut(doc) };
+}
+
 /* ---------------------------------------------------------- آليات الضيوف */
 
 // الضيوف بالموقع الآن دائمًا + من خرج خلال آخر `days` يومًا — نفس مبدأ listEntries.
@@ -1084,5 +1138,6 @@ module.exports = {
   insertFuelFill, listFuelFills, listFuelFillsRange, insertFuelSupply, listFuelSupply, lastWorkHoursForVehicle, lastDispenserMeterReading,
   getFuelFillByClientRef, getFuelSupplyByClientRef,
   lastFuelMeterReading, getFuelBaseline, setFuelBaseline,
-  listGuestVisits, insertGuestVisit, closeGuestVisit, guestVisitTypeSupported, guestVisitStats
+  listGuestVisits, insertGuestVisit, closeGuestVisit, guestVisitTypeSupported, guestVisitStats,
+  getAlertDistanceLimit, setAlertDistanceLimit, alertsSupported, listAlertJustifications, insertAlertJustification
 };

@@ -246,7 +246,37 @@ async function init(options) {
   return { location: server + ' → ' + dbName, initialPasswords };
 }
 
+// تبريرات تنبيهات تجاوز المسافة (انظر migrations/003-alert-justifications.sql). تُنشأ مع القواعد
+// الجديدة كليًا فقط؛ القواعد القائمة لا تُعدَّل تلقائيًا عند الإقلاع.
+const ALERT_JUSTIFICATIONS_DDL = [
+  `IF OBJECT_ID('dbo.alert_justifications','U') IS NULL
+   CREATE TABLE dbo.alert_justifications (
+     id            NVARCHAR(64)  NOT NULL PRIMARY KEY,
+     entry_id      NVARCHAR(64)  NOT NULL,
+     alert_type    NVARCHAR(16)  NOT NULL CONSTRAINT df_alert_just_type DEFAULT N'distance',
+     status        NVARCHAR(16)  NOT NULL CONSTRAINT df_alert_just_status DEFAULT N'justified'
+                     CONSTRAINT ck_alert_just_status CHECK (status IN (N'justified')),
+     vehicle       NVARCHAR(120) NOT NULL,
+     driver        NVARCHAR(120) NOT NULL,
+     customer      NVARCHAR(200) NOT NULL,
+     trip_date     NVARCHAR(10)  NOT NULL,
+     depart_time   NVARCHAR(5)   NULL,
+     return_date   NVARCHAR(10)  NULL,
+     return_time   NVARCHAR(5)   NULL,
+     distance_km   FLOAT         NOT NULL,
+     limit_km      FLOAT         NOT NULL,
+     justification NVARCHAR(1000) NOT NULL,
+     justified_by  NVARCHAR(120) NOT NULL,
+     justified_at  NVARCHAR(40)  NOT NULL
+   )`,
+  `IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='ux_alert_just_entry' AND object_id=OBJECT_ID('dbo.alert_justifications'))
+   CREATE UNIQUE INDEX ux_alert_just_entry ON dbo.alert_justifications(entry_id, alert_type)`,
+  `IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='ix_alert_just_at' AND object_id=OBJECT_ID('dbo.alert_justifications'))
+   CREATE INDEX ix_alert_just_at ON dbo.alert_justifications(justified_at DESC)`
+];
+
 async function createSchema() {
+  const freshDb = !(await pool.request().query(`SELECT OBJECT_ID('dbo.entries','U') AS id`)).recordset[0].id;
   // كل عبارة على حدة: SQL Server يرفض CREATE TABLE مع عبارات أخرى في دفعة
   // واحدة دون GO، و batch واحد هنا أوضح للتشخيص عند الفشل.
   const statements = [
@@ -439,6 +469,9 @@ async function createSchema() {
 
   for (const stmt of statements) {
     await pool.request().query(stmt);
+  }
+  if (freshDb) {
+    for (const stmt of ALERT_JUSTIFICATIONS_DDL) await pool.request().query(stmt);
   }
 }
 
@@ -1221,6 +1254,71 @@ async function lastDispenserMeterReading() {
   return r && r.dispenser_meter !== null && r.dispenser_meter !== undefined ? Number(r.dispenser_meter) : null;
 }
 
+/* ------------------------------------------- تنبيهات المسافة: الحد والتبريرات */
+
+const ALERT_LIMIT_KEY = 'alert_distance_limit_km';
+
+// الحد بالكيلومتر (يحدّده مدير الآليات). null = لم يُحدَّد بعد → لا تنبيهات مسافة.
+async function getAlertDistanceLimit() {
+  const v = await getSetting(ALERT_LIMIT_KEY);
+  const n = v === null ? NaN : Number(v);
+  return isFinite(n) && n > 0 ? n : null;
+}
+async function setAlertDistanceLimit(km) { await setSetting(ALERT_LIMIT_KEY, Number(km)); }
+
+// هل جدول التبريرات موجود؟ فحص قراءة فقط. الموجب يُخزَّن، والسالب يُعاد فحصه كل 30 ثانية.
+let _alertsOk = false, _alertsChecked = 0;
+async function alertsSupported() {
+  if (_alertsOk) return true;
+  const now = Date.now();
+  if (_alertsChecked && now - _alertsChecked < 30000) return false;
+  _alertsChecked = now;
+  const r = await one(`SELECT OBJECT_ID('dbo.alert_justifications','U') AS id`);
+  _alertsOk = !!(r && r.id);
+  return _alertsOk;
+}
+
+function alertJustificationOut(r) {
+  if (!r) return null;
+  return {
+    id: r.id, entryId: r.entry_id, alertType: r.alert_type, status: r.status,
+    vehicle: r.vehicle, driver: r.driver, customer: r.customer,
+    dateKey: r.trip_date, departTime: r.depart_time, returnDate: r.return_date, returnTime: r.return_time,
+    distance: r.distance_km, limitKm: r.limit_km,
+    justification: r.justification, justifiedBy: r.justified_by, justifiedAt: r.justified_at
+  };
+}
+
+async function listAlertJustifications() {
+  return (await all('SELECT * FROM dbo.alert_justifications ORDER BY justified_at DESC')).map(alertJustificationOut);
+}
+
+// { record } عند النجاح، { error: 'duplicate', record } إن سبق تبرير هذه الرحلة (لا استبدال).
+async function insertAlertJustification(d) {
+  const type = d.alertType || 'distance';
+  const find = async () => alertJustificationOut(await one(
+    'SELECT * FROM dbo.alert_justifications WHERE entry_id = @e AND alert_type = @t',
+    [['e', NV(64), String(d.entryId)], ['t', NV(16), type]]));
+  const prior = await find();
+  if (prior) return { error: 'duplicate', record: prior };
+  const id = newId('aj');
+  try {
+    await q(`INSERT INTO dbo.alert_justifications (id, entry_id, alert_type, status, vehicle, driver, customer, trip_date,
+               depart_time, return_date, return_time, distance_km, limit_km, justification, justified_by, justified_at)
+             VALUES (@id,@e,@t,N'justified',@v,@dr,@c,@td,@dt,@rd,@rt,@km,@lim,@j,@by,@at)`,
+      [['id', NV(64), id], ['e', NV(64), String(d.entryId)], ['t', NV(16), type],
+       ['v', NV(120), d.vehicle], ['dr', NV(120), d.driver], ['c', NV(200), d.customer], ['td', NV(10), d.dateKey],
+       ['dt', NV(5), d.departTime || null], ['rd', NV(10), d.returnDate || null], ['rt', NV(5), d.returnTime || null],
+       ['km', FLT, Number(d.distance)], ['lim', FLT, Number(d.limitKm)],
+       ['j', NV(1000), String(d.justification)], ['by', NV(120), d.justifiedBy],
+       ['at', NV(40), new Date().toISOString()]]);
+  } catch (e) {
+    if (isDuplicateError(e)) return { error: 'duplicate', record: await find() };
+    throw e;
+  }
+  return { record: alertJustificationOut(await one('SELECT * FROM dbo.alert_justifications WHERE id = @id', [['id', NV(64), id]])) };
+}
+
 /* ---------------------------------------------------------- آليات الضيوف */
 
 function guestVisitOut(r) {
@@ -1358,5 +1456,6 @@ module.exports = {
   insertFuelFill, listFuelFills, listFuelFillsRange, insertFuelSupply, listFuelSupply, lastWorkHoursForVehicle, lastDispenserMeterReading,
   getFuelFillByClientRef, getFuelSupplyByClientRef,
   lastFuelMeterReading, getFuelBaseline, setFuelBaseline,
-  listGuestVisits, insertGuestVisit, closeGuestVisit, guestVisitTypeSupported, guestVisitStats
+  listGuestVisits, insertGuestVisit, closeGuestVisit, guestVisitTypeSupported, guestVisitStats,
+  getAlertDistanceLimit, setAlertDistanceLimit, alertsSupported, listAlertJustifications, insertAlertJustification
 };

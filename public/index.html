@@ -236,6 +236,13 @@
   .pct-control input{width:90px;}
   .alert-row{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px dashed var(--line);font-size:13px;flex-wrap:wrap;}
   .alert-row:last-child{border-bottom:none;}
+  .al-item{padding:12px 0;border-bottom:1px dashed var(--line);font-size:13px;}
+  .al-item:last-child{border-bottom:none;}
+  .al-meta{line-height:1.9;margin-bottom:8px;}
+  .al-item textarea{width:100%;min-height:72px;resize:vertical;}
+  .al-item .al-actions{display:flex;gap:10px;align-items:center;margin-top:6px;flex-wrap:wrap;}
+  .al-just{background:var(--warn-bg);border-radius:8px;padding:8px 12px;line-height:1.8;}
+  .al-note{font-size:13px;color:var(--ink-soft);margin:0 0 10px;}
   .group{margin-bottom:18px;}
   .group-head{display:flex;justify-content:space-between;gap:10px;font-weight:700;font-size:14px;
     background:var(--surface-2);border-radius:8px;padding:8px 12px;margin-bottom:8px;flex-wrap:wrap;}
@@ -836,6 +843,9 @@ let fuelFills   = [];
 let fuelSupply  = [];
 let fuelBaseline = {}; // { tank1: {initialQty,initialMeter}|null, tank2: ..., tank3: ... }
 let guestVisits = [];
+let distanceLimitKm = null;          // حدّ تنبيه المسافة بالكيلومتر (من /api/state؛ null = لم يُحدَّد → لا تنبيهات مسافة)
+let alState = null;                  // آخر رد /api/alerts/distance
+let alSig = '';                      // توقيع آخر عرض: لا نعيد رسم القائمة (فنمسح نصًا يُكتب) ما لم تتغيّر
 let guestStats = null;               // من /api/state للأدمن فقط: { typeSupported, customers, guests, todayCustomers, todayGuests }
 let guestTypeSupported = false;      // هل يقبل الخادم تسجيل «زبون» (عمود visit_type مُطبَّق)
 let currentRole = null;        // gate | fleet_manager | fleet_coordinator | fuel | admin | fuel_warehouse_manager | hr
@@ -1358,6 +1368,7 @@ async function refresh(){
   drivers  = data.drivers || [];
   fuelFills = data.fuelFills || [];
   userPermissions = data.permissions || {};
+  distanceLimitKm = (typeof data.alertDistanceLimitKm === 'number' && data.alertDistanceLimitKm > 0) ? data.alertDistanceLimitKm : null;
   fuelSupply = data.fuelSupply || [];
   fuelBaseline = data.fuelBaseline || {};
   guestVisits = data.guestVisits || [];
@@ -1471,6 +1482,16 @@ function enrichEntries(){
       e._durationMin = ret ? Math.round((ret - getDepartDateTime(e))/60000) : null;
     });
   });
+}
+
+// تجاوز المسافة: مسافة الرحلة الفعلية > الحد المحدَّد بالكيلومتر (لا نسبة ولا متوسط زبون).
+function alertIdsOverKm(limit){
+  const ids = new Set();
+  if(limit === null || limit === undefined) return ids;
+  entries.forEach(e=>{
+    if(e.status==='done' && e._distance!==null && e._distance!==undefined && !isNaN(e._distance) && e._distance > limit) ids.add(e.id);
+  });
+  return ids;
 }
 
 function alertIdsBy(metric, pct){
@@ -2228,9 +2249,11 @@ function rpBuild(){
         <input type="number" id="pct-threshold" value="20" min="0" max="300"><span>%</span>
       </div>
       <div class="pct-control">
-        <label for="pct-threshold-dist">تجاوز في المسافة عن المتوسط بنسبة:</label>
-        <input type="number" id="pct-threshold-dist" value="20" min="0" max="300"><span>%</span>
-      </div>` : '';
+        <label for="al-limit">حدّ تجاوز المسافة (بالكيلومتر):</label>
+        <input type="number" id="al-limit" min="1" step="any" placeholder="غير محدّد"><span>كم</span>
+        <button type="button" class="btn-primary btn-sm" id="al-limit-save" hidden>حفظ الحد</button>
+      </div>
+      <p class="al-note" id="al-limit-note"></p>` : '';
     return `<div class="rp-panel" id="rp-panel-${k}" data-rp="${k}">
       <div class="card">
         <div class="card-head"><h2>${escapeHtml(t.title)}</h2></div>
@@ -2251,6 +2274,7 @@ function rpBuild(){
           </div>
         </div>
         ${pct}
+        ${t.alertType ? '<div id="al-box"></div>' : ''}
         <p class="rp-meta" id="rp-${k}-meta"></p>
         <div class="rp-body" id="rp-${k}-body"><p class="empty">اختر هذا التبويب لعرض البيانات.</p></div>
       </div>
@@ -2374,6 +2398,7 @@ function rpActivate(k){
   document.querySelectorAll('.rp-panel').forEach(p => p.classList.toggle('active', p.dataset.rp === k));
   rpSyncDateFields(k);
   rpLoad(k, true);                 // الدخول إلى التبويب = قراءة حديثة من قاعدة البيانات
+  if(k === 'alerts') alLoad(true);
 }
 function rpEnter(){ if(rpBuilt) rpActivate(rpActive); }
 function rpTabVisible(){ const p = $('tab-reports'); return !!(p && p.classList.contains('active')); }
@@ -2381,6 +2406,7 @@ function rpRenderActive(){ if(rpBuilt && rpTabVisible() && rpData[rpActive]) rpR
 
 // فترة تضم اليوم الحالي تتجدد تلقائيًا مع دورات الاستطلاع (بلا وميض «جارٍ التحميل»).
 function rpAutoRefresh(){
+  if(rpBuilt && rpTabVisible() && rpActive === 'alerts') alLoad(false);   // انتقال التنبيهات بين المدير والأدمن
   if(!rpBuilt || !rpTabVisible()) return;
   const d = rpData[rpActive];
   if(!d || Date.now() - d.at < 30000) return;
@@ -2392,6 +2418,128 @@ function rpOnRollover(){
   if(rpBuilt && rpTabVisible()) rpLoad(rpActive, true, true);
 }
 
+/* ---- تنبيهات المسافة: حدّ الكيلومترات والتبرير (مدير الآليات ← الأدمن) ----
+   الحالات: pending (بانتظار التبرير) ← justified (مُبرَّر). مدير الآليات يرى المعلّق ويكتب التبرير،
+   فيختفي من قائمته ويظهر للأدمن مع من كتبه ومتى. الصلاحيات تُفرض في الخادم؛ الواجهة تُظهر/تُخفي فقط. */
+function alSyncLimit(){
+  const inp = $('al-limit'); if(!inp) return;
+  const can = !!userPermissions.setAlertLimit;
+  inp.readOnly = !can;
+  $('al-limit-save').hidden = !can;
+  if(document.activeElement !== inp) inp.value = distanceLimitKm === null ? '' : String(distanceLimitKm);
+  $('al-limit-note').textContent = distanceLimitKm === null
+    ? (can ? 'لم يُحدَّد الحد بعد: لن تظهر تنبيهات مسافة حتى تدخل قيمة بالكيلومتر وتحفظها.'
+           : 'لم يحدّد مدير الآليات حدّ المسافة بعد، فلا توجد تنبيهات مسافة.')
+    : 'يُنشأ تنبيه عندما تتجاوز المسافة المقطوعة في الرحلة هذا الحد.';
+}
+
+async function alSaveLimit(){
+  const v = Number($('al-limit').value);
+  if(!isFinite(v) || v <= 0){ toast('أدخل حدًّا بالكيلومتر أكبر من صفر', 'err'); return; }
+  try{
+    const r = await api('PUT', '/api/alerts/distance-limit', { limitKm: v });
+    distanceLimitKm = r.limitKm;
+    toast('حُفظ حدّ تجاوز المسافة', 'ok');
+    render();
+    rpLoad('alerts', true, true);
+    alLoad(true);
+  }catch(e){ toast(e.message, 'err'); }
+}
+
+async function alLoad(force){
+  if(!(isFleetRole() || currentRole === 'admin') || !$('al-box')) return;
+  try{ alState = await api('GET', '/api/alerts/distance'); }
+  catch(err){
+    if(!alState) $('al-box').innerHTML = `<p class="empty">تعذّر تحميل تنبيهات المسافة: ${escapeHtml(err && err.message || '')}</p>`;
+    return;
+  }
+  alRender(!!force);
+}
+
+function alFmtAt(iso){
+  const d = new Date(iso);
+  return isNaN(d) ? '' : d.toLocaleString('ar-EG', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+}
+
+function alMeta(a, rec){
+  const km = n => Number(n).toFixed(1);
+  const ret = a.returnTime ? `${a.returnDate || a.dateKey} ${fmtTime12(a.returnTime)}` : '—';
+  const counter = (a.kmStart !== undefined) ? ` · العدّاد ${km(a.kmStart)} ← ${km(a.kmEnd)}` : '';
+  const day = a.returnOpDay ? ` · يوم العودة التشغيلي ${escapeHtml(a.returnOpDay)}` : '';
+  const dist = rec ? a.distance : a.distance;
+  return `<div class="al-meta">
+    <b>${escapeHtml(a.vehicle)}</b> — السائق: ${escapeHtml(a.driver)} — الزبون: ${escapeHtml(a.customer)}<br>
+    المغادرة: ${escapeHtml(a.dateKey)} ${fmtTime12(a.departTime)} · العودة: ${escapeHtml(ret)}${counter}${day}<br>
+    المسافة: <b>${km(dist)} كم</b> · الحد: ${km(a.limitKm)} كم · التجاوز: <b>${km(dist - a.limitKm)} كم</b>
+    ${a.notesOut ? '<br>ملاحظة المغادرة: ' + escapeHtml(a.notesOut) : ''}${a.notesIn ? '<br>ملاحظة العودة: ' + escapeHtml(a.notesIn) : ''}
+  </div>`;
+}
+
+function alRender(force){
+  const box = $('al-box'); if(!box || !alState) return;
+  const s = alState;
+  const admin = currentRole === 'admin';
+  const sig = JSON.stringify([admin, s.supported, s.limitKm, userPermissions.justifyAlerts,
+    admin ? [s.pendingCount, (s.justified||[]).map(j=>j.id)] : (s.pending||[]).map(a=>a.entryId)]);
+  if(!force && sig === alSig) return;
+  alSig = sig;
+
+  let html = '';
+  if(!s.supported){
+    html += '<p class="al-note">حفظ التبريرات غير مفعّل بعد: يلزم تطبيق migrations/003-alert-justifications.sql على قاعدة البيانات (يدويًا).</p>';
+  }
+  if(admin){
+    const list = s.justified || [];
+    html += `<div class="card-head" style="margin-top:6px"><h2>تنبيهات المسافة المبرَّرة</h2><span class="count-badge">${list.length}</span></div>`;
+    html += `<p class="al-note">بانتظار تبرير مدير الآليات: <b>${s.pendingCount || 0}</b> تنبيه. التنبيهات المبرَّرة تبقى هنا للمراجعة والرجوع إليها.</p>`;
+    html += list.length ? list.map(r => `<div class="al-item">
+        ${alMeta(r, true)}
+        <div class="al-just"><b>التبرير:</b> ${escapeHtml(r.justification)}<br>
+          <span style="color:var(--ink-soft)">كتبه: ${escapeHtml(r.justifiedBy)} · ${escapeHtml(alFmtAt(r.justifiedAt))} · الحالة: <span class="badge badge-ok">مُبرَّر</span></span></div>
+      </div>`).join('') : '<p class="empty">لا توجد تنبيهات مبرَّرة بعد.</p>';
+  }else{
+    const list = s.pending || [];
+    const can = !!userPermissions.justifyAlerts && s.supported;
+    html += `<div class="card-head" style="margin-top:6px"><h2>تنبيهات المسافة بانتظار التبرير</h2><span class="count-badge">${list.length}</span></div>`;
+    if(!userPermissions.justifyAlerts) html += '<p class="al-note">للاطلاع فقط: كتابة التبرير لمدير الآليات.</p>';
+    html += list.length ? list.map(a => `<div class="al-item" data-al-item="${escapeHtml(a.entryId)}">
+        ${alMeta(a, false)}
+        <span class="badge badge-warn">بانتظار التبرير</span>
+        ${can ? `<div class="field field-wide" style="margin-top:8px">
+          <label for="al-t-${escapeHtml(a.entryId)}">التبرير (إلزامي)</label>
+          <textarea id="al-t-${escapeHtml(a.entryId)}" maxlength="1000" required placeholder="اكتب سبب تجاوز المسافة…"></textarea>
+        </div>
+        <p class="form-error" id="al-e-${escapeHtml(a.entryId)}" hidden></p>
+        <div class="al-actions"><button type="button" class="btn-primary btn-sm" data-al-save="${escapeHtml(a.entryId)}">حفظ التبرير</button></div>` : ''}
+      </div>`).join('') : '<p class="empty">لا توجد تنبيهات مسافة بانتظار التبرير.</p>';
+  }
+  box.innerHTML = html;
+}
+
+async function alSaveJustification(entryId){
+  const ta = document.getElementById('al-t-' + entryId);
+  const err = document.getElementById('al-e-' + entryId);
+  if(!ta) return;
+  const text = ta.value.trim();
+  if(err) err.hidden = true;
+  if(!text){
+    if(err){ err.textContent = 'التبرير مطلوب ولا يمكن حفظه فارغًا.'; err.hidden = false; }
+    ta.focus();
+    return;
+  }
+  const btn = document.querySelector(`button[data-al-save="${CSS.escape(entryId)}"]`);
+  if(btn) btn.disabled = true;
+  try{
+    await api('POST', `/api/alerts/distance/${encodeURIComponent(entryId)}/justify`, { justification: text });
+    toast('حُفظ التبرير — انتقل التنبيه إلى الأدمن', 'ok');
+    await alLoad(true);
+  }catch(e){
+    if(btn) btn.disabled = false;
+    if(err){ err.textContent = e.message; err.hidden = false; } else toast(e.message, 'err');
+    if(e.message && /سبق تبرير|ليست تنبيه/.test(e.message)) alLoad(true);
+  }
+}
+
 function rpGranularity(s, per){
   if(s.gran === 'day' || s.gran === 'month') return s.gran;
   return rpSpanDays(per) <= 31 ? 'day' : 'month';
@@ -2399,16 +2547,19 @@ function rpGranularity(s, per){
 
 function rpFlags(data){
   const pctT = Number($('pct-threshold').value || 20);
-  const pctD = Number($('pct-threshold-dist').value || 20);
   const timeIds = new Set(), distIds = new Set();
   data.trips.forEach(t => {
     const b = data.baselines[(t.customer || '').trim()];
     if(!b) return;
     if(b.nT >= 2 && b.avgT !== null && t._durationMin !== null && t._durationMin !== undefined
        && t._durationMin > b.avgT * (1 + pctT/100)) timeIds.add(t.id);
-    if(b.nD >= 2 && b.avgD !== null && t._distance !== null && t._distance !== undefined
-       && t._distance > b.avgD * (1 + pctD/100)) distIds.add(t.id);
   });
+  // المسافة: حدّ ثابت بالكيلومتر لا يعتمد على متوسط الزبون (فلا يحتاج خط أساس).
+  if(distanceLimitKm !== null){
+    data.trips.forEach(t => {
+      if(t._distance !== null && t._distance !== undefined && t._distance > distanceLimitKm) distIds.add(t.id);
+    });
+  }
   return { timeIds, distIds };
 }
 
@@ -2731,7 +2882,7 @@ function render(){
   let timeIds = new Set(), distIds = new Set();
   if(isFleetRole() || currentRole === 'admin'){
     timeIds = alertIdsBy('_durationMin', Number($('pct-threshold').value || 20));
-    distIds = alertIdsBy('_distance',    Number($('pct-threshold-dist').value || 20));
+    distIds = alertIdsOverKm(distanceLimitKm);
   }
   renderHero(new Set([...timeIds, ...distIds]));
   renderDatalists();
@@ -2746,6 +2897,7 @@ function render(){
     renderDriversTab();
     renderLogTable(timeIds, distIds);
     rpRenderActive();
+    if(rpBuilt) alSyncLimit();
   }
   if(currentRole === 'fuel' || currentRole === 'fuel_warehouse_manager' || currentRole === 'admin'){
     renderFuelTab();
@@ -3418,7 +3570,11 @@ function bindEvents(){
 
   // المدير — التقارير
   $('pct-threshold').addEventListener('input', render);
-  $('pct-threshold-dist').addEventListener('input', render);
+  $('al-limit-save').addEventListener('click', alSaveLimit);
+  $('al-limit').addEventListener('keydown', ev=>{ if(ev.key === 'Enter'){ ev.preventDefault(); alSaveLimit(); } });
+  $('al-box').addEventListener('click', ev=>{
+    const b = ev.target.closest('button[data-al-save]'); if(b) alSaveJustification(b.dataset.alSave);
+  });
 
   // الأدمن — المستخدمون
   $('user-form').addEventListener('submit', submitUser);
