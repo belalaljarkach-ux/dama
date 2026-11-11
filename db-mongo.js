@@ -1043,6 +1043,25 @@ async function listGuestVisits(days) {
   return rows.map(stripId);
 }
 
+// سجلّ الضيوف (للعرض فقط): قراءة من مجموعة guest_visits نفسها التي تكتبها البوابة — لا تخزين مكرّر.
+// الضيوف فقط (تُستثنى تسجيلات «زبون»؛ $ne يطابق أيضًا المستندات القديمة بلا visitType)،
+// مرشَّحة ومرقَّمة في قاعدة البيانات. f = { since, until, name, status, limit, offset } → { rows, total }
+// since/until = { date, time }: دخول من since (شامل) إلى until (غير شامل) — حدّا اليوم التشغيلي.
+async function queryGuestVisitLog(f) {
+  const filter = { visitType: { $ne: 'customer' } };
+  const and = [];
+  if (f.since) and.push({ $or: [{ dateIn: { $gt: f.since.date } }, { dateIn: f.since.date, timeIn: { $gte: f.since.time } }] });
+  if (f.until) and.push({ $or: [{ dateIn: { $lt: f.until.date } }, { dateIn: f.until.date, timeIn: { $lt: f.until.time } }] });
+  if (and.length) filter.$and = and;
+  if (f.status === 'in' || f.status === 'out') filter.status = f.status;
+  if (f.name) filter.vehicleDesc = { $regex: String(f.name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
+  const total = await col.guestVisits.countDocuments(filter);
+  const rows = await col.guestVisits.find(filter)
+    .sort({ dateIn: -1, timeIn: -1, _id: -1 })
+    .skip(Number(f.offset) || 0).limit(Number(f.limit) || 50).toArray();
+  return { rows: rows.map(stripId), total };
+}
+
 async function insertGuestVisit(data) {
   const id = newId('g');
   const doc = {
@@ -1138,6 +1157,6 @@ module.exports = {
   insertFuelFill, listFuelFills, listFuelFillsRange, insertFuelSupply, listFuelSupply, lastWorkHoursForVehicle, lastDispenserMeterReading,
   getFuelFillByClientRef, getFuelSupplyByClientRef,
   lastFuelMeterReading, getFuelBaseline, setFuelBaseline,
-  listGuestVisits, insertGuestVisit, closeGuestVisit, guestVisitTypeSupported, guestVisitStats,
+  listGuestVisits, insertGuestVisit, closeGuestVisit, queryGuestVisitLog, guestVisitTypeSupported, guestVisitStats,
   getAlertDistanceLimit, setAlertDistanceLimit, alertsSupported, listAlertJustifications, insertAlertJustification
 };

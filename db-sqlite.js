@@ -1054,6 +1054,24 @@ function listGuestVisits(days) {
                      ORDER BY date_in DESC, time_in DESC`).all(from).map(guestVisitOut);
 }
 
+// سجلّ الضيوف (للعرض فقط): قراءة من جدول guest_visits نفسه الذي تكتبه البوابة — لا تخزين مكرّر.
+// الضيوف فقط (تُستثنى تسجيلات «زبون»)، مرشَّحة ومرقَّمة في قاعدة البيانات كي يحتمل العدد الكبير.
+// f = { since, until, name, status, limit, offset } → { rows, total }
+// since/until = { date, time }: دخول من since (شامل) إلى until (غير شامل) — حدّا اليوم التشغيلي.
+function queryGuestVisitLog(f) {
+  const where = [], args = [];
+  if (guestVisitTypeSupported()) where.push(`COALESCE(visit_type,'guest') <> 'customer'`);
+  if (f.since) { where.push('(date_in > ? OR (date_in = ? AND time_in >= ?))'); args.push(f.since.date, f.since.date, f.since.time); }
+  if (f.until) { where.push('(date_in < ? OR (date_in = ? AND time_in < ?))'); args.push(f.until.date, f.until.date, f.until.time); }
+  if (f.status === 'in' || f.status === 'out') { where.push('status = ?'); args.push(f.status); }
+  if (f.name) { where.push(`vehicle_desc LIKE ? ESCAPE '\\'`); args.push('%' + String(f.name).replace(/[\\%_]/g, '\\$&') + '%'); }
+  const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const total = db.prepare(`SELECT COUNT(*) AS n FROM guest_visits ${w}`).get(...args).n;
+  const rows = db.prepare(`SELECT * FROM guest_visits ${w} ORDER BY date_in DESC, time_in DESC, id DESC LIMIT ? OFFSET ?`)
+    .all(...args, Number(f.limit) || 50, Number(f.offset) || 0).map(guestVisitOut);
+  return { rows, total };
+}
+
 function insertGuestVisit(data) {
   const id = newId('g');
   const base = [id, String(data.vehicleDesc).trim(), String(data.purpose).trim(), data.dateIn, data.timeIn, data.createdBy || null];
@@ -1115,6 +1133,6 @@ module.exports = {
   insertFuelFill, listFuelFills, listFuelFillsRange, insertFuelSupply, listFuelSupply, lastWorkHoursForVehicle, lastDispenserMeterReading,
   getFuelFillByClientRef, getFuelSupplyByClientRef,
   lastFuelMeterReading, getFuelBaseline, setFuelBaseline,
-  listGuestVisits, insertGuestVisit, closeGuestVisit, guestVisitTypeSupported, guestVisitStats,
+  listGuestVisits, insertGuestVisit, closeGuestVisit, queryGuestVisitLog, guestVisitTypeSupported, guestVisitStats,
   getAlertDistanceLimit, setAlertDistanceLimit, alertsSupported, listAlertJustifications, insertAlertJustification
 };
