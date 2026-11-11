@@ -1378,6 +1378,35 @@ async function listGuestVisits(days) {
     [['from', NV(10), from]])).map(guestVisitOut);
 }
 
+// سجلّ الضيوف (للعرض فقط): قراءة من جدول guest_visits نفسه الذي تكتبه البوابة — لا تخزين مكرّر.
+// الضيوف فقط (تُستثنى تسجيلات «زبون»)، مرشَّحة ومرقَّمة في قاعدة البيانات كي يحتمل العدد الكبير.
+// f = { since, until, name, status, limit, offset } → { rows, total }
+// since/until = { date, time }: دخول من since (شامل) إلى until (غير شامل) — حدّا اليوم التشغيلي.
+async function queryGuestVisitLog(f) {
+  const where = [], params = [];
+  if (await guestVisitTypeSupported()) where.push(`ISNULL(visit_type, N'guest') <> N'customer'`);
+  if (f.since) {
+    where.push('(date_in > @sd OR (date_in = @sd AND time_in >= @st))');
+    params.push(['sd', NV(10), f.since.date], ['st', NV(5), f.since.time]);
+  }
+  if (f.until) {
+    where.push('(date_in < @ud OR (date_in = @ud AND time_in < @ut))');
+    params.push(['ud', NV(10), f.until.date], ['ut', NV(5), f.until.time]);
+  }
+  if (f.status === 'in' || f.status === 'out') { where.push('status = @st'); params.push(['st', NV(8), f.status]); }
+  if (f.name) {
+    where.push(`vehicle_desc LIKE @nm ESCAPE N'\\'`);
+    params.push(['nm', NV(240), '%' + String(f.name).replace(/[\\%_\[]/g, '\\$&') + '%']);
+  }
+  const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const total = (await one(`SELECT COUNT(*) AS n FROM dbo.guest_visits ${w}`, params)).n;
+  const rows = (await all(`SELECT * FROM dbo.guest_visits ${w}
+                           ORDER BY date_in DESC, time_in DESC, id DESC
+                           OFFSET @off ROWS FETCH NEXT @lim ROWS ONLY`,
+    params.concat([['off', sql.Int, Number(f.offset) || 0], ['lim', sql.Int, Number(f.limit) || 50]]))).map(guestVisitOut);
+  return { rows, total };
+}
+
 async function insertGuestVisit(data) {
   const id = newId('g');
   const params = [['id', NV(64), id], ['vd', NV(200), String(data.vehicleDesc).trim()],
@@ -1456,6 +1485,6 @@ module.exports = {
   insertFuelFill, listFuelFills, listFuelFillsRange, insertFuelSupply, listFuelSupply, lastWorkHoursForVehicle, lastDispenserMeterReading,
   getFuelFillByClientRef, getFuelSupplyByClientRef,
   lastFuelMeterReading, getFuelBaseline, setFuelBaseline,
-  listGuestVisits, insertGuestVisit, closeGuestVisit, guestVisitTypeSupported, guestVisitStats,
+  listGuestVisits, insertGuestVisit, closeGuestVisit, queryGuestVisitLog, guestVisitTypeSupported, guestVisitStats,
   getAlertDistanceLimit, setAlertDistanceLimit, alertsSupported, listAlertJustifications, insertAlertJustification
 };

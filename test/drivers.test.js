@@ -34,7 +34,7 @@ const REQUIRED = [
   'insertFuelFill', 'listFuelFills', 'listFuelFillsRange', 'insertFuelSupply', 'listFuelSupply',
   'getFuelFillByClientRef', 'getFuelSupplyByClientRef',
   'lastFuelMeterReading', 'getFuelBaseline', 'setFuelBaseline', 'lastWorkHoursForVehicle', 'lastDispenserMeterReading',
-  'listGuestVisits', 'insertGuestVisit', 'closeGuestVisit',
+  'listGuestVisits', 'insertGuestVisit', 'closeGuestVisit', 'queryGuestVisitLog',
   'guestVisitTypeSupported', 'guestVisitStats',
   'getAlertDistanceLimit', 'setAlertDistanceLimit', 'alertsSupported', 'listAlertJustifications', 'insertAlertJustification'
 ];

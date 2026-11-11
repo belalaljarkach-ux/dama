@@ -119,6 +119,8 @@ const DELETE_ENTRY_ROLES = ['fleet_manager'];
 // القائمة للاطلاع فقط، والأدمن يراجع المبرَّر منها). تُفرض في الخادم؛ الواجهة تقرأ permissions للإظهار.
 const SET_ALERT_LIMIT_ROLES = ['fleet_manager'];
 const JUSTIFY_ALERT_ROLES = ['fleet_manager'];
+// سجلّ الضيوف (تبويب عرض فقط): مدير الآليات والأدمن وحدهما — لا المنسق ولا بقية الأدوار.
+const GUEST_LOG_ROLES = ['fleet_manager', 'admin'];
 const MAX_ALERT_LIMIT_KM = 1000000;
 const MAX_JUSTIFICATION_LEN = 1000;
 function permissionsFor(role) {
@@ -562,6 +564,33 @@ async function route(req, res, url) {
     const visit = await db.insertGuestVisit({ vehicleDesc, purpose, dateIn, timeIn, visitType, createdBy: actor.username });
     await db.audit(actor, clientIp(req), 'guest_in', visit.id, { vehicleDesc, purpose, visitType });
     return json(res, 201, { visit });
+  }
+
+  /* ---- سجلّ الضيوف: عرض فقط من guest_visits (لا يغيّر شيئًا من تسجيل البوابة) ---- */
+
+  if (p === '/api/guests/log' && m === 'GET') {
+    const actor = await requireRole(req, res, ...GUEST_LOG_ROLES); if (!actor) return;
+    const sp = url.searchParams;
+    // السجل يومي: «اليوم التشغيلي» (يبدأ config.dayStartHour، 03:00) — نفس مقياس بقية النظام. دخول 01:30 يتبع اليوم السابق.
+    // day افتراضيه اليوم التشغيلي الحالي؛ carry=1 يعرض من لم يغادر من أيام سابقة (دخلوا قبل بداية اليوم المطلوب).
+    const today = reportsCore.currentOpDay(new Date(), config.dayStartHour);
+    const day = str(sp.get('day'), 10) || today, status = str(sp.get('status'), 3);
+    if (!reportsCore.isDateKey(day)) return fail(res, 400, 'صيغة التاريخ غير صحيحة.');
+    if (status && status !== 'in' && status !== 'out') return fail(res, 400, 'حالة الزيارة غير صحيحة.');
+    const limit = Math.min(Math.max(parseInt(sp.get('limit'), 10) || 50, 1), 200);
+    const offset = Math.max(parseInt(sp.get('offset'), 10) || 0, 0);
+    const hh = String(config.dayStartHour).padStart(2, '0') + ':00';
+    const since = { date: day, time: hh };
+    const until = { date: reportsCore.shiftDateKey(day, 1), time: hh };
+    const carry = sp.get('carry') === '1';
+    const name = str(sp.get('name'), 120);
+    const r = carry
+      ? await db.queryGuestVisitLog({ until: since, status: 'in', name, limit, offset })
+      : await db.queryGuestVisitLog({ since, until, status, name, limit, offset });
+    const carryOver = carry ? r.total
+      : (await db.queryGuestVisitLog({ until: since, status: 'in', limit: 1, offset: 0 })).total;
+    return json(res, 200, { rows: r.rows, total: r.total, limit, offset, day, today, carry, carryOver,
+      dayStartHour: config.dayStartHour, serverTime: new Date().toISOString() });
   }
 
   const mGuest = p.match(/^\/api\/guests\/([\w-]+)\/exit$/);

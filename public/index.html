@@ -243,6 +243,9 @@
   .al-item .al-actions{display:flex;gap:10px;align-items:center;margin-top:6px;flex-wrap:wrap;}
   .al-just{background:var(--warn-bg);border-radius:8px;padding:8px 12px;line-height:1.8;}
   .al-note{font-size:13px;color:var(--ink-soft);margin:0 0 10px;}
+  .gl-pager{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:14px;font-size:13px;color:var(--ink-soft);}
+  .gl-pager[hidden]{display:none;}
+  #gl-body td.gl-num{color:var(--ink-soft);width:44px;}
   .group{margin-bottom:18px;}
   .group-head{display:flex;justify-content:space-between;gap:10px;font-weight:700;font-size:14px;
     background:var(--surface-2);border-radius:8px;padding:8px 12px;margin-bottom:8px;flex-wrap:wrap;}
@@ -331,6 +334,7 @@
     <button class="tab" data-tab="drivers" data-role="fleet_manager,fleet_coordinator,admin">السائقون</button>
     <button class="tab" data-tab="log" data-role="fleet_manager,fleet_coordinator,admin">السجل الكامل</button>
     <button class="tab" data-tab="reports" data-role="fleet_manager,fleet_coordinator,admin">التقارير والتنبيهات</button>
+    <button class="tab" data-tab="guestlog" data-role="fleet_manager,admin">سجل الضيوف</button>
     <button class="tab" data-tab="fuel" data-role="fuel,fuel_warehouse_manager,admin">المازوت</button>
     <button class="tab" data-tab="setup" data-role="admin">الإعداد الأولي</button>
     <button class="tab" data-tab="users" data-role="admin">المستخدمون</button>
@@ -503,6 +507,50 @@
   </section>
 
   <!-- ---------------- تبويب المدير: التقارير والتنبيهات ---------------- -->
+  <!-- ---------------- سجل الضيوف: مدير الآليات والأدمن — عرض فقط من سجلات البوابة ---------------- -->
+  <section class="tab-panel" id="tab-guestlog">
+    <div class="card">
+      <div class="card-head">
+        <h2>سجل الضيوف</h2>
+        <span class="count-badge" id="gl-total">0</span>
+      </div>
+      <div class="rp-bar">
+        <div class="field"><label for="gl-day">اليوم</label><input type="date" id="gl-day"></div>
+        <div class="field"><label for="gl-name">اسم الضيف</label>
+          <input type="search" id="gl-name" autocomplete="off" placeholder="بحث…"></div>
+        <div class="field"><label for="gl-status">حالة الزيارة</label>
+          <select id="gl-status"><option value="">الكل</option><option value="in">داخل</option><option value="out">غادر</option></select></div>
+        <div class="rp-actions">
+          <button type="button" class="btn-ghost btn-sm" data-gl-act="dprev">◄ اليوم السابق</button>
+          <button type="button" class="btn-ghost btn-sm" data-gl-act="dnext" id="gl-dnext">اليوم التالي ►</button>
+          <button type="button" class="btn-ghost btn-sm" data-gl-act="today">اليوم الحالي</button>
+          <button type="button" class="btn-primary btn-sm" data-gl-act="apply">بحث / تطبيق</button>
+          <button type="button" class="btn-ghost btn-sm" data-gl-act="clear">مسح الفلاتر</button>
+          <button type="button" class="btn-ghost btn-sm" data-gl-act="refresh">تحديث</button>
+        </div>
+      </div>
+      <p class="rp-meta" id="gl-meta"></p>
+      <p class="al-note" id="gl-carry" hidden></p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th><th>اسم الضيف (وصف المركبة)</th><th>الجهة / الشركة التابع لها</th><th>الجهة المزارة / سبب الزيارة</th>
+              <th>تاريخ الزيارة</th><th>ساعة الدخول</th><th>ساعة الخروج</th><th>الحالة</th>
+            </tr>
+          </thead>
+          <tbody id="gl-body"></tbody>
+        </table>
+      </div>
+      <p class="empty" id="gl-empty" hidden>لا توجد زيارات مطابقة.</p>
+      <div class="gl-pager" id="gl-pager" hidden>
+        <button type="button" class="btn-ghost btn-sm" data-gl-act="prev">السابق</button>
+        <span id="gl-page-info"></span>
+        <button type="button" class="btn-ghost btn-sm" data-gl-act="next">التالي</button>
+      </div>
+    </div>
+  </section>
+
   <section class="tab-panel" id="tab-reports">
     <div class="subtabs" id="rp-subtabs" role="tablist" aria-label="التقارير والتنبيهات"></div>
     <div id="rp-panels"></div>
@@ -1412,7 +1460,7 @@ function startPolling(){
     if(openReturnId) return;                             // ولا إدخال عودة مفتوحًا
     // رفع المعلّق أولًا: بيانات الخادم بلا سجلاتنا المعلّقة صورة ناقصة.
     if(outbox.length){ await flushOutbox(); return; }
-    try{ await refresh(); render(); rpAutoRefresh(); }
+    try{ await refresh(); render(); rpAutoRefresh(); glAutoRefresh(); }
     catch(err){ /* الشارة تعرض حالة الاتصال؛ لا نزعج المستخدم بنافذة */ }
   }, 8000);
 
@@ -2418,6 +2466,134 @@ function rpOnRollover(){
   if(rpBuilt && rpTabVisible()) rpLoad(rpActive, true, true);
 }
 
+/* ---- سجل الضيوف (مدير الآليات والأدمن) ----
+   عرض فقط من guest_visits (نفس بيانات البوابة): الترشيح والترقيم في الخادم فيحتمل العدد الكبير.
+   لا يوجد حقلا «اسم الضيف» ولا «الشركة» في تسجيل البوابة: الاسم = وصف المركبة، والشركة «—» حتى تُسجَّل. */
+const GL_PAGE = 50;
+let glPage = 0, glRun = 0, glTimer = null;
+let glCarry = false;        // عرض من لم يغادر من أيام سابقة بدل يوم واحد
+let glFollowToday = true;   // اليوم المعروض هو اليوم التشغيلي الحالي → يتبعه عند انتقاله (03:00)
+
+function glDayLabel(day){
+  return new Date(day + 'T12:00:00').toLocaleDateString('ar-EG', { weekday:'long', day:'2-digit', month:'long', year:'numeric' });
+}
+
+function glParams(){
+  const p = new URLSearchParams();
+  const v = id => $(id).value.trim();
+  if(v('gl-day')) p.set('day', v('gl-day'));
+  if(v('gl-name')) p.set('name', v('gl-name'));
+  if(v('gl-status') && !glCarry) p.set('status', v('gl-status'));
+  if(glCarry) p.set('carry', '1');
+  p.set('limit', GL_PAGE);
+  p.set('offset', glPage * GL_PAGE);
+  return p;
+}
+
+function glSetDay(day){
+  const today = currentOpDay();
+  if(day > today) day = today;             // لا أيام مستقبلية
+  $('gl-day').value = day;
+  $('gl-day').max = today;
+  glFollowToday = (day === today);
+  glCarry = false;
+  glPage = 0;
+}
+
+async function glLoad(silent){
+  if(!(currentRole === 'admin' || currentRole === 'fleet_manager') || !$('gl-body')) return;
+  if(!$('gl-day').value) glSetDay(currentOpDay());          // أول دخول: اليوم التشغيلي الحالي
+  const run = ++glRun;
+  if(!silent) $('gl-meta').textContent = 'جارٍ التحميل…';
+  let data;
+  try{ data = await api('GET', '/api/guests/log?' + glParams().toString()); }
+  catch(err){
+    if(run === glRun && !silent) $('gl-meta').textContent = 'تعذّر تحميل سجل الضيوف: ' + (err && err.message || '');
+    return;
+  }
+  if(run !== glRun) return;          // رد متأخر لطلب أقدم
+  const pages = Math.max(1, Math.ceil(data.total / GL_PAGE));
+  if(glPage > pages - 1){ glPage = pages - 1; return glLoad(silent); }   // الصفحات نقصت (تغيّرت البيانات)
+  glRender(data, pages);
+}
+
+function glRender(data, pages){
+  $('gl-total').textContent = data.total;
+  const hh = String(data.dayStartHour).padStart(2, '0');
+  $('gl-dnext').disabled = glCarry || data.day >= currentOpDay();
+  const at = data.serverTime ? ' · آخر تحديث ' + fmtTime12(new Date(data.serverTime).toTimeString().slice(0,5)) : '';
+  $('gl-meta').textContent = glCarry
+    ? `${data.total} ضيف لم يغادروا من أيام سابقة${at}`
+    : `${glDayLabel(data.day)} — اليوم التشغيلي (يبدأ ${hh}:00) · ${data.total} زيارة${at}`;
+  // ضيوف دخلوا قبل اليوم المعروض ولم يسجَّل خروجهم: لا يظهرون في سجل يومهم القديم بل هنا.
+  const carryBox = $('gl-carry');
+  if(glCarry){
+    carryBox.hidden = false;
+    carryBox.innerHTML = 'تعرض هذه القائمة من دخل في أيام سابقة ولم يسجَّل خروجه بعد. <button type="button" class="btn-ghost btn-sm" data-gl-act="uncarry">رجوع إلى اليوم</button>';
+  }else if(data.carryOver > 0){
+    carryBox.hidden = false;
+    carryBox.innerHTML = `يوجد <b>${data.carryOver}</b> ضيف دخلوا في أيام سابقة ولم يسجَّل خروجهم بعد. <button type="button" class="btn-ghost btn-sm" data-gl-act="carry">عرضهم</button>`;
+  }else carryBox.hidden = true;
+  $('gl-empty').hidden = data.rows.length > 0;
+  $('gl-body').innerHTML = data.rows.map((v, i) => {
+    const out = v.status === 'out';
+    const outTime = out && v.timeOut
+      ? fmtTime12(v.timeOut) + (v.dateOut && v.dateOut !== v.dateIn ? ` <span class="meta">(${escapeHtml(v.dateOut)})</span>` : '')
+      : '—';
+    return `<tr class="${out ? '' : 'is-out'}">
+      <td class="gl-num">${data.offset + i + 1}</td>
+      <td>${escapeHtml(v.guestName || v.vehicleDesc)}</td>
+      <td>${v.company ? escapeHtml(v.company) : '—'}</td>
+      <td>${escapeHtml(v.purpose)}</td>
+      <td>${escapeHtml(v.dateIn)}</td>
+      <td>${fmtTime12(v.timeIn)}</td>
+      <td>${outTime}</td>
+      <td>${out ? '<span class="badge badge-ok">غادر</span>' : '<span class="badge badge-out">داخل</span>'}</td>
+    </tr>`;
+  }).join('');
+  $('gl-pager').hidden = pages <= 1;
+  $('gl-page-info').textContent = `صفحة ${glPage + 1} من ${pages}`;
+  document.querySelector('[data-gl-act="prev"]').disabled = glPage <= 0;
+  document.querySelector('[data-gl-act="next"]').disabled = glPage >= pages - 1;
+}
+
+function glAutoRefresh(){
+  const p = $('tab-guestlog');
+  if(!(p && p.classList.contains('active'))) return;
+  // انتقل اليوم التشغيلي (03:00) وكنا نعرض «اليوم»: نتبعه تلقائيًا.
+  if(glFollowToday && !glCarry && $('gl-day').value !== currentOpDay()){ glSetDay(currentOpDay()); glLoad(false); return; }
+  glLoad(true);    // تحديث صامت مع دورة الاستطلاع: يلتقط دخول/خروج البوابة
+}
+
+function glBind(){
+  const panel = $('tab-guestlog'); if(!panel) return;
+  panel.addEventListener('click', ev=>{
+    const b = ev.target.closest('[data-gl-act]'); if(!b) return;
+    const act = b.dataset.glAct;
+    const shift = d => { const t = new Date($('gl-day').value + 'T12:00:00'); t.setDate(t.getDate() + d); return t.toISOString().slice(0,10); };
+    if(act === 'clear'){ ['gl-name','gl-status'].forEach(id => { $(id).value = ''; }); glSetDay(currentOpDay()); }
+    else if(act === 'dprev') glSetDay(shift(-1));
+    else if(act === 'dnext') glSetDay(shift(1));
+    else if(act === 'today') glSetDay(currentOpDay());
+    else if(act === 'carry'){ glCarry = true; glPage = 0; }
+    else if(act === 'uncarry'){ glCarry = false; glPage = 0; }
+    else if(act === 'prev') glPage = Math.max(0, glPage - 1);
+    else if(act === 'next') glPage += 1;
+    else if(act === 'apply') glPage = 0;
+    glLoad(false);
+  });
+  panel.addEventListener('change', ev=>{
+    const id = ev.target.id || '';
+    if(id === 'gl-day'){ if($('gl-day').value) glSetDay($('gl-day').value); else glSetDay(currentOpDay()); glLoad(false); }
+    else if(id === 'gl-status'){ glPage = 0; glLoad(false); }
+  });
+  $('gl-name').addEventListener('input', ()=>{
+    clearTimeout(glTimer);
+    glTimer = setTimeout(()=>{ glPage = 0; glLoad(false); }, 300);
+  });
+  $('gl-name').addEventListener('keydown', ev=>{ if(ev.key === 'Enter'){ ev.preventDefault(); clearTimeout(glTimer); glPage = 0; glLoad(false); } });
+}
+
 /* ---- تنبيهات المسافة: حدّ الكيلومترات والتبرير (مدير الآليات ← الأدمن) ----
    الحالات: pending (بانتظار التبرير) ← justified (مُبرَّر). مدير الآليات يرى المعلّق ويكتب التبرير،
    فيختفي من قائمته ويظهر للأدمن مع من كتبه ومتى. الصلاحيات تُفرض في الخادم؛ الواجهة تُظهر/تُخفي فقط. */
@@ -2914,6 +3090,7 @@ function switchTab(name){
   if(!btn || btn.hidden) return;
   document.querySelectorAll('.tab').forEach(b=> b.classList.toggle('active', b.dataset.tab===name));
   document.querySelectorAll('.tab-panel').forEach(p=> p.classList.toggle('active', p.id === 'tab-'+name));
+  if(name === 'guestlog' && currentRole) glLoad(false);   // الدخول للتبويب: قراءة حديثة من سجلات البوابة
   if(name === 'reports' && currentRole) rpEnter();   // الدخول للتبويب: بيانات اليوم الحالي من قاعدة البيانات
 }
 
@@ -3570,6 +3747,7 @@ function bindEvents(){
 
   // المدير — التقارير
   $('pct-threshold').addEventListener('input', render);
+  glBind();
   $('al-limit-save').addEventListener('click', alSaveLimit);
   $('al-limit').addEventListener('keydown', ev=>{ if(ev.key === 'Enter'){ ev.preventDefault(); alSaveLimit(); } });
   $('al-box').addEventListener('click', ev=>{
