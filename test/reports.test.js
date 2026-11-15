@@ -126,7 +126,7 @@ async function call(cookie, method, url, body) {
     const fuel = await login('المازوت', pwOf('المازوت'));
 
     for (const [name, type] of [['جبالة 1', 'gabbala'], ['جبالة 2', 'gabbala'], ['مضخة 1', 'pump']])
-      await call(admin, 'POST', '/api/vehicles', { name, baselineKm: 0, type });
+      await call(admin, 'POST', '/api/vehicles', { name, baselineKm: 0, type, pumpLengthM: type === 'pump' ? 30 : undefined });
     const km = {};
     async function trip(vehicle, customer, dateKey, dep, retDate, ret, kmv) {
       const b = { vehicle, driver: 'سائق ' + vehicle, customer, dateKey, departTime: dep };
