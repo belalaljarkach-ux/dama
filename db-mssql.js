@@ -472,7 +472,10 @@ async function createSchema() {
   }
   if (freshDb) {
     for (const stmt of ALERT_JUSTIFICATIONS_DDL) await pool.request().query(stmt);
+    // عمود طول المضخة: للقواعد الجديدة فقط؛ القواعد القائمة تُحدَّث يدويًا (migrations/004-add-pump-length.sql).
+    await ensureColumn('vehicles', 'pump_length_m', 'pump_length_m FLOAT NULL');
   }
+  _pumpLenOk = false; _pumpLenChecked = 0;
 }
 
 // إضافة عمود ناقص إلى جدول قائم فعلًا دون كسره — لا يوجد نظام migration عام
@@ -772,7 +775,8 @@ function vehicleOut(r) {
     id: r.id, name: r.name, baselineKm: Number(r.baseline_km), registeredAt: r.registered_at,
     type: r.type || null,
     fuelTankQty: r.fuel_tank_qty === null || r.fuel_tank_qty === undefined ? null : Number(r.fuel_tank_qty),
-    workHoursBaseline: r.work_hours_baseline === null || r.work_hours_baseline === undefined ? null : Number(r.work_hours_baseline)
+    workHoursBaseline: r.work_hours_baseline === null || r.work_hours_baseline === undefined ? null : Number(r.work_hours_baseline),
+    pumpLengthM: r.pump_length_m === null || r.pump_length_m === undefined ? null : Number(r.pump_length_m)
   };
 }
 
@@ -960,9 +964,35 @@ async function getVehicleByClientRef(ref) {
     [['r', NV(64), String(ref)]]));
 }
 
-async function insertVehicle(name, baselineKm, type, fuelTankQty, workHoursBaseline, clientRef) {
+// هل عمود pump_length_m موجود؟ فحص قراءة فقط. الموجب يُخزَّن، والسالب يُعاد فحصه كل 30 ثانية
+// فيُلتقط تطبيق الـ migration دون إعادة تشغيل.
+let _pumpLenOk = false, _pumpLenChecked = 0;
+async function vehiclePumpLengthSupported() {
+  if (_pumpLenOk) return true;
+  const now = Date.now();
+  if (_pumpLenChecked && now - _pumpLenChecked < 30000) return false;
+  _pumpLenChecked = now;
+  const r = await one(`SELECT COL_LENGTH('dbo.vehicles','pump_length_m') AS len`);
+  _pumpLenOk = !!(r && r.len !== null && r.len !== undefined);
+  return _pumpLenOk;
+}
+
+function numOrNull(v) {
+  return v === undefined || v === null || v === '' ? null : Number(v);
+}
+
+async function insertVehicle(name, baselineKm, type, fuelTankQty, workHoursBaseline, clientRef, pumpLengthM) {
   const id = newId('v');
   try {
+    if (await vehiclePumpLengthSupported()) {
+      await q(`INSERT INTO dbo.vehicles (id, name, baseline_km, type, fuel_tank_qty, work_hours_baseline, registered_at, client_ref, pump_length_m)
+               VALUES (@id,@n,@km,@t,@f,@whb,@r,@cr,@pl)`,
+        [['id', NV(64), id], ['n', NV(120), String(name).trim()],
+         ['km', FLT, Number(baselineKm)], ['t', NV(32), type || null],
+         ['f', FLT, numOrNull(fuelTankQty)], ['whb', FLT, numOrNull(workHoursBaseline)],
+         ['r', NV(40), new Date().toISOString()],
+         ['cr', NV(64), clientRef || null], ['pl', FLT, numOrNull(pumpLengthM)]]);
+    } else
     await q(`INSERT INTO dbo.vehicles (id, name, baseline_km, type, fuel_tank_qty, work_hours_baseline, registered_at, client_ref)
              VALUES (@id,@n,@km,@t,@f,@whb,@r,@cr)`,
       [['id', NV(64), id], ['n', NV(120), String(name).trim()],
@@ -994,7 +1024,7 @@ async function insertVehicle(name, baselineKm, type, fuelTankQty, workHoursBasel
  * تعديل آلية. إعادة التسمية تُحدِّث كل سجلاتها داخل معاملة واحدة، وإلا انفصل
  * تاريخها القديم عن اسمها الجديد وضاعت حسابات المسافة.
  */
-async function updateVehicle(id, name, baselineKm, type, fuelTankQty, workHoursBaseline) {
+async function updateVehicle(id, name, baselineKm, type, fuelTankQty, workHoursBaseline, pumpLengthM) {
   const old = await one('SELECT * FROM dbo.vehicles WHERE id = @id', [['id', NV(64), String(id)]]);
   if (!old) return null;
   const newName = String(name).trim();
@@ -1002,6 +1032,12 @@ async function updateVehicle(id, name, baselineKm, type, fuelTankQty, workHoursB
   const tx = new sql.Transaction(pool);
   await tx.begin();
   try {
+    if (await vehiclePumpLengthSupported()) {
+      await q('UPDATE dbo.vehicles SET name=@n, baseline_km=@km, type=@t, fuel_tank_qty=@f, work_hours_baseline=@whb, pump_length_m=@pl WHERE id=@id',
+        [['n', NV(120), newName], ['km', FLT, Number(baselineKm)], ['t', NV(32), type || null],
+         ['f', FLT, numOrNull(fuelTankQty)], ['whb', FLT, numOrNull(workHoursBaseline)],
+         ['pl', FLT, numOrNull(pumpLengthM)], ['id', NV(64), String(id)]], tx);
+    } else
     await q('UPDATE dbo.vehicles SET name=@n, baseline_km=@km, type=@t, fuel_tank_qty=@f, work_hours_baseline=@whb WHERE id=@id',
       [['n', NV(120), newName], ['km', FLT, Number(baselineKm)],
        ['t', NV(32), type || null],
@@ -1486,5 +1522,6 @@ module.exports = {
   getFuelFillByClientRef, getFuelSupplyByClientRef,
   lastFuelMeterReading, getFuelBaseline, setFuelBaseline,
   listGuestVisits, insertGuestVisit, closeGuestVisit, queryGuestVisitLog, guestVisitTypeSupported, guestVisitStats,
-  getAlertDistanceLimit, setAlertDistanceLimit, alertsSupported, listAlertJustifications, insertAlertJustification
+  getAlertDistanceLimit, setAlertDistanceLimit, alertsSupported, listAlertJustifications, insertAlertJustification,
+  vehiclePumpLengthSupported
 };

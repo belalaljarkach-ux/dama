@@ -201,6 +201,25 @@ function requireVehicleType(v) {
   return s;
 }
 
+// طول المضخة (متر): يُطلب فقط عندما يكون النوع «مضخة» وقاعدة البيانات تدعم العمود.
+// إدخال يدوي: رقم موجب (يقبل الكسور) — يُرفض الفارغ والحروف والصفر والسالب. وللأنواع الأخرى يُهمَل (null).
+const MAX_PUMP_LENGTH_M = 1000;
+function resolvePumpLength(type, raw, supported) {
+  if (type !== 'pump' || !supported) return null;
+  const label = 'طول المضخة (متر)';
+  if (raw === undefined || raw === null || (typeof raw === 'string' && raw.trim() === '')) {
+    throw badRequest(`«${label}» مطلوب لنوع الآلية «مضخة».`);
+  }
+  let n;
+  if (typeof raw === 'number') n = raw;
+  else if (typeof raw === 'string' && /^\d+(\.\d+)?$/.test(raw.trim())) n = Number(raw.trim());
+  else throw badRequest(`«${label}» يجب أن يكون رقمًا (مثال: 36.5 أو 42).`);
+  if (!isFinite(n)) throw badRequest(`«${label}» يجب أن يكون رقمًا (مثال: 36.5 أو 42).`);
+  if (n <= 0) throw badRequest(`«${label}» يجب أن يكون أكبر من صفر.`);
+  if (n > MAX_PUMP_LENGTH_M) throw badRequest(`«${label}» غير منطقي (الحد الأقصى ${MAX_PUMP_LENGTH_M} متر).`);
+  return n;
+}
+
 // رقم اختياري: فارغ يعني null (لا قيمة)، وإلا يجب أن يكون رقمًا منطقيًا.
 function optionalNumber(v, label) {
   if (v === undefined || v === null || v === '') return null;
@@ -327,6 +346,7 @@ async function route(req, res, url) {
       alertDistanceLimitKm: (FLEET_ROLES.includes(actor.role) || actor.role === 'admin')
         ? await db.getAlertDistanceLimit() : null,
       guestVisitTypeSupported: await db.guestVisitTypeSupported(),
+      vehiclePumpLengthSupported: await db.vehiclePumpLengthSupported(),
       guestStats,
       entries: await db.listEntries(days),
       vehicles: await db.listVehicles(),
@@ -680,10 +700,11 @@ async function route(req, res, url) {
     const type = requireVehicleType(b.type);
     const fuelTankQty = optionalNumber(b.fuelTankQty, 'كمية المازوت بالخزان');
     const workHoursBaseline = optionalNumber(b.workHoursBaseline, 'عدّاد ساعات العمل الأساس');
+    const pumpLengthM = resolvePumpLength(type, b.pumpLengthM, await db.vehiclePumpLengthSupported());
     if (await db.getVehicleByName(name)) return fail(res, 409, 'هذه الآلية مسجّلة مسبقًا.');
     let v;
     try {
-      v = await db.insertVehicle(name, km, type, fuelTankQty, workHoursBaseline, clientRef);
+      v = await db.insertVehicle(name, km, type, fuelTankQty, workHoursBaseline, clientRef, pumpLengthM);
     } catch (err) {
       if (clientRef && err.duplicateClientRef) {
         const prior = await db.getVehicleByClientRef(clientRef);
@@ -692,7 +713,7 @@ async function route(req, res, url) {
       if (err.duplicateName) return fail(res, 409, 'هذه الآلية مسجّلة مسبقًا.');
       throw err;
     }
-    await db.audit(actor, clientIp(req), 'add_vehicle', v.id, { name, baselineKm: km, type });
+    await db.audit(actor, clientIp(req), 'add_vehicle', v.id, { name, baselineKm: km, type, pumpLengthM });
     return json(res, 201, { vehicle: v });
   }
 
@@ -705,11 +726,12 @@ async function route(req, res, url) {
     const type = requireVehicleType(b.type);
     const fuelTankQty = optionalNumber(b.fuelTankQty, 'كمية المازوت بالخزان');
     const workHoursBaseline = optionalNumber(b.workHoursBaseline, 'عدّاد ساعات العمل الأساس');
+    const pumpLengthM = resolvePumpLength(type, b.pumpLengthM, await db.vehiclePumpLengthSupported());
     const clash = await db.getVehicleByName(name);
     if (clash && clash.id !== mVehicle[1]) return fail(res, 409, 'يوجد آلية أخرى بنفس الاسم.');
-    const v = await db.updateVehicle(mVehicle[1], name, km, type, fuelTankQty, workHoursBaseline);
+    const v = await db.updateVehicle(mVehicle[1], name, km, type, fuelTankQty, workHoursBaseline, pumpLengthM);
     if (!v) return fail(res, 404, 'الآلية غير موجودة.');
-    await db.audit(actor, clientIp(req), 'edit_vehicle', v.id, { name, baselineKm: km, type });
+    await db.audit(actor, clientIp(req), 'edit_vehicle', v.id, { name, baselineKm: km, type, pumpLengthM });
     return json(res, 200, { vehicle: v });
   }
 

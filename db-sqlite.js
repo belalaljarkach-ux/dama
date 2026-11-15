@@ -220,6 +220,9 @@ function init(options) {
   `);
 
   if (freshDb) db.exec(ALERT_JUSTIFICATIONS_DDL);
+  // عمود طول المضخة: للقواعد الجديدة فقط؛ القواعد القائمة تُحدَّث يدويًا (migrations/004-add-pump-length.sql).
+  if (freshDb) ensureColumn('vehicles', 'pump_length_m', 'pump_length_m REAL');
+  _pumpLenOk = false; _pumpLenChecked = 0;
 
   // لا يوجد نظام migration عام هنا: الجداول القديمة (sessions، audit، vehicles،
   // entries) قد تكون أُنشئت قبل إضافة هذه الحقول، فنضيف الأعمدة الناقصة يدويًا.
@@ -506,7 +509,8 @@ function vehicleOut(r) {
     id: r.id, name: r.name, baselineKm: Number(r.baseline_km), registeredAt: r.registered_at,
     type: r.type || null,
     fuelTankQty: r.fuel_tank_qty === null || r.fuel_tank_qty === undefined ? null : Number(r.fuel_tank_qty),
-    workHoursBaseline: r.work_hours_baseline === null || r.work_hours_baseline === undefined ? null : Number(r.work_hours_baseline)
+    workHoursBaseline: r.work_hours_baseline === null || r.work_hours_baseline === undefined ? null : Number(r.work_hours_baseline),
+    pumpLengthM: r.pump_length_m === null || r.pump_length_m === undefined ? null : Number(r.pump_length_m)
   };
 }
 
@@ -682,14 +686,38 @@ function getVehicleByClientRef(ref) {
   return r ? vehicleOut(r) : null;
 }
 
-function insertVehicle(name, baselineKm, type, fuelTankQty, workHoursBaseline, clientRef) {
+// هل عمود pump_length_m موجود؟ فحص قراءة فقط. الموجب يُخزَّن، والسالب يُعاد فحصه كل 30 ثانية
+// فيُلتقط تطبيق الـ migration دون إعادة تشغيل.
+let _pumpLenOk = false, _pumpLenChecked = 0;
+function vehiclePumpLengthSupported() {
+  if (_pumpLenOk) return true;
+  const now = Date.now();
+  if (_pumpLenChecked && now - _pumpLenChecked < 30000) return false;
+  _pumpLenChecked = now;
+  _pumpLenOk = db.prepare(`SELECT name FROM pragma_table_info('vehicles')`).all()
+    .some(c => c.name === 'pump_length_m');
+  return _pumpLenOk;
+}
+
+function numOrNull(v) {
+  return v === undefined || v === null || v === '' ? null : Number(v);
+}
+
+function insertVehicle(name, baselineKm, type, fuelTankQty, workHoursBaseline, clientRef, pumpLengthM) {
   const id = newId('v');
   try {
+    if (vehiclePumpLengthSupported()) {
+      db.prepare('INSERT INTO vehicles (id, name, baseline_km, type, fuel_tank_qty, work_hours_baseline, registered_at, client_ref, pump_length_m) VALUES (?,?,?,?,?,?,?,?,?)')
+        .run(id, String(name).trim(), Number(baselineKm), type || null,
+             numOrNull(fuelTankQty), numOrNull(workHoursBaseline),
+             new Date().toISOString(), clientRef || null, numOrNull(pumpLengthM));
+    } else {
     db.prepare('INSERT INTO vehicles (id, name, baseline_km, type, fuel_tank_qty, work_hours_baseline, registered_at, client_ref) VALUES (?,?,?,?,?,?,?,?)')
       .run(id, String(name).trim(), Number(baselineKm), type || null,
            fuelTankQty === undefined || fuelTankQty === null || fuelTankQty === '' ? null : Number(fuelTankQty),
            workHoursBaseline === undefined || workHoursBaseline === null || workHoursBaseline === '' ? null : Number(workHoursBaseline),
            new Date().toISOString(), clientRef || null);
+    }
   } catch (err) {
     if (/UNIQUE constraint failed/i.test(err.message)) {
       if (/client_ref/i.test(err.message)) {
@@ -710,18 +738,24 @@ function insertVehicle(name, baselineKm, type, fuelTankQty, workHoursBaseline, c
  * تعديل آلية. إعادة تسمية الآلية تُحدِّث كل سجلاتها السابقة داخل نفس المعاملة،
  * وإلا انفصل تاريخها القديم عن اسمها الجديد وضاعت حسابات المسافة.
  */
-function updateVehicle(id, name, baselineKm, type, fuelTankQty, workHoursBaseline) {
+function updateVehicle(id, name, baselineKm, type, fuelTankQty, workHoursBaseline, pumpLengthM) {
   const tx = db.prepare('BEGIN IMMEDIATE');
   tx.run();
   try {
     const old = db.prepare('SELECT * FROM vehicles WHERE id = ?').get(String(id));
     if (!old) { db.prepare('ROLLBACK').run(); return null; }
     const newName = String(name).trim();
+    if (vehiclePumpLengthSupported()) {
+      db.prepare('UPDATE vehicles SET name = ?, baseline_km = ?, type = ?, fuel_tank_qty = ?, work_hours_baseline = ?, pump_length_m = ? WHERE id = ?')
+        .run(newName, Number(baselineKm), type || null,
+             numOrNull(fuelTankQty), numOrNull(workHoursBaseline), numOrNull(pumpLengthM), String(id));
+    } else {
     db.prepare('UPDATE vehicles SET name = ?, baseline_km = ?, type = ?, fuel_tank_qty = ?, work_hours_baseline = ? WHERE id = ?')
       .run(newName, Number(baselineKm), type || null,
            fuelTankQty === undefined || fuelTankQty === null || fuelTankQty === '' ? null : Number(fuelTankQty),
            workHoursBaseline === undefined || workHoursBaseline === null || workHoursBaseline === '' ? null : Number(workHoursBaseline),
            String(id));
+    }
     if (old.name !== newName) {
       db.prepare('UPDATE entries SET vehicle = ?, updated_at = ? WHERE vehicle = ?')
         .run(newName, new Date().toISOString(), old.name);
@@ -1134,5 +1168,6 @@ module.exports = {
   getFuelFillByClientRef, getFuelSupplyByClientRef,
   lastFuelMeterReading, getFuelBaseline, setFuelBaseline,
   listGuestVisits, insertGuestVisit, closeGuestVisit, queryGuestVisitLog, guestVisitTypeSupported, guestVisitStats,
-  getAlertDistanceLimit, setAlertDistanceLimit, alertsSupported, listAlertJustifications, insertAlertJustification
+  getAlertDistanceLimit, setAlertDistanceLimit, alertsSupported, listAlertJustifications, insertAlertJustification,
+  vehiclePumpLengthSupported
 };

@@ -667,7 +667,7 @@ async function deleteEntry(id) {
   return res.deletedCount > 0;
 }
 
-async function insertVehicle(name, baselineKm, type, fuelTankQty, workHoursBaseline, clientRef) {
+async function insertVehicle(name, baselineKm, type, fuelTankQty, workHoursBaseline, clientRef, pumpLengthM) {
   const id = newId('v');
   const doc = {
     _id: id, id,
@@ -676,6 +676,7 @@ async function insertVehicle(name, baselineKm, type, fuelTankQty, workHoursBasel
     type: type || null,
     fuelTankQty: fuelTankQty === undefined || fuelTankQty === null || fuelTankQty === '' ? null : Number(fuelTankQty),
     workHoursBaseline: workHoursBaseline === undefined || workHoursBaseline === null || workHoursBaseline === '' ? null : Number(workHoursBaseline),
+    pumpLengthM: pumpLengthM === undefined || pumpLengthM === null || pumpLengthM === '' ? null : Number(pumpLengthM),
     registeredAt: new Date().toISOString()
   };
   if (clientRef) doc.clientRef = String(clientRef);
@@ -709,7 +710,7 @@ async function insertVehicle(name, baselineKm, type, fuelTankQty, workHoursBasel
  * العمليتان تباعًا؛ الخطر عمليًّا معدوم لأن إعادة تسمية آلية إجراء نادر
  * يقوم به المدير وحده.
  */
-async function updateVehicle(id, name, baselineKm, type, fuelTankQty, workHoursBaseline) {
+async function updateVehicle(id, name, baselineKm, type, fuelTankQty, workHoursBaseline, pumpLengthM) {
   const old = await col.vehicles.findOne({ _id: String(id) });
   if (!old) return null;
   const newName = String(name).trim();
@@ -722,7 +723,8 @@ async function updateVehicle(id, name, baselineKm, type, fuelTankQty, workHoursB
           name: newName, baselineKm: Number(baselineKm),
           type: type || null,
           fuelTankQty: fuelTankQty === undefined || fuelTankQty === null || fuelTankQty === '' ? null : Number(fuelTankQty),
-          workHoursBaseline: workHoursBaseline === undefined || workHoursBaseline === null || workHoursBaseline === '' ? null : Number(workHoursBaseline)
+          workHoursBaseline: workHoursBaseline === undefined || workHoursBaseline === null || workHoursBaseline === '' ? null : Number(workHoursBaseline),
+          pumpLengthM: pumpLengthM === undefined || pumpLengthM === null || pumpLengthM === '' ? null : Number(pumpLengthM)
       } }, opts);
     if (old.name !== newName) {
       await col.entries.updateMany({ vehicle: old.name },
@@ -1080,6 +1082,9 @@ async function insertGuestVisit(data) {
 // MongoDB بلا مخطط ثابت: حقل visitType يعمل دائمًا ولا يحتاج migration.
 async function guestVisitTypeSupported() { return true; }
 
+// حقل pumpLengthM بلا مخطط ثابت: يعمل دائمًا ولا يحتاج migration.
+async function vehiclePumpLengthSupported() { return true; }
+
 // إحصاءات الزبائن/الضيوف من كل السجلات (كل مستخدمي البوابة، بلا نافذة أيام).
 // since = { date, time } بداية اليوم التشغيلي الحالي. مستند بلا visitType (قديم) = «ضيف».
 async function guestVisitStats(since) {
@@ -1158,5 +1163,6 @@ module.exports = {
   getFuelFillByClientRef, getFuelSupplyByClientRef,
   lastFuelMeterReading, getFuelBaseline, setFuelBaseline,
   listGuestVisits, insertGuestVisit, closeGuestVisit, queryGuestVisitLog, guestVisitTypeSupported, guestVisitStats,
-  getAlertDistanceLimit, setAlertDistanceLimit, alertsSupported, listAlertJustifications, insertAlertJustification
+  getAlertDistanceLimit, setAlertDistanceLimit, alertsSupported, listAlertJustifications, insertAlertJustification,
+  vehiclePumpLengthSupported
 };

@@ -687,6 +687,11 @@
             <option value="silo">سيلو</option>
           </select>
         </div>
+        <div class="field" id="v-pump-field" hidden>
+          <label for="v-pump">طول المضخة (متر)</label>
+          <input type="number" id="v-pump" min="0" step="any" inputmode="decimal" placeholder="مثال: 36.5 أو 42">
+          <small>إدخال يدوي — مطلوب لنوع «مضخة» فقط.</small>
+        </div>
         <div class="field">
           <label for="v-fuel">كمية المازوت بالخزان</label>
           <input type="number" id="v-fuel" min="0" step="0.1">
@@ -895,6 +900,7 @@ let distanceLimitKm = null;          // حدّ تنبيه المسافة بال�
 let alState = null;                  // آخر رد /api/alerts/distance
 let alSig = '';                      // توقيع آخر عرض: لا نعيد رسم القائمة (فنمسح نصًا يُكتب) ما لم تتغيّر
 let guestStats = null;               // من /api/state للأدمن فقط: { typeSupported, customers, guests, todayCustomers, todayGuests }
+let pumpLenSupported = false;        // هل يدعم الخادم حفظ طول المضخة (عمود pump_length_m مُطبَّق)
 let guestTypeSupported = false;      // هل يقبل الخادم تسجيل «زبون» (عمود visit_type مُطبَّق)
 let currentRole = null;        // gate | fleet_manager | fleet_coordinator | fuel | admin | fuel_warehouse_manager | hr
 let userPermissions = {};      // من /api/state — editFullRecord (تعديل السجل الكامل: مدير الآليات وحده)
@@ -1422,6 +1428,8 @@ async function refresh(){
   guestVisits = data.guestVisits || [];
   guestStats = data.guestStats || null;
   guestTypeSupported = !!data.guestVisitTypeSupported;
+  pumpLenSupported = !!data.vehiclePumpLengthSupported;
+  updatePumpFieldVisibility();
   if(Number.isInteger(data.dayStartHour) && data.dayStartHour >= 0 && data.dayStartHour <= 23){
     DAY_START_HOUR = data.dayStartHour;
   }
@@ -1813,7 +1821,8 @@ function renderVehiclesTab(){
     return `<tr class="${out?'is-out':''} ${v._pending?'is-pending':''}">
       <td class="veh-cell">${escapeHtml(v.name)}${
         pending ? ' <span class="badge badge-pending">بانتظار الإرسال</span>' : ''}</td>
-      <td>${VEHICLE_TYPE_LABEL[v.type] || '—'}</td>
+      <td>${VEHICLE_TYPE_LABEL[v.type] || '—'}${
+        v.type === 'pump' && v.pumpLengthM != null ? ` <span class="badge badge-ok">الطول: ${v.pumpLengthM} م</span>` : ''}</td>
       <td>${out ? '<span class="badge badge-out">في الخارج</span>' : '<span class="badge badge-ok">في المجبل</span>'}</td>
       <td>${v.baselineKm}</td>
       <td>${last !== null ? last : '—'}</td>
@@ -3397,6 +3406,14 @@ function resetVehicleForm(){
   $('v-submit-btn').textContent = 'حفظ الآلية';
   $('v-cancel-edit').hidden = true;
   $('vehicle-error').hidden = true;
+  updatePumpFieldVisibility();
+}
+
+// حقل «طول المضخة (متر)»: يظهر فقط عند اختيار نوع «مضخة» (وعندما يدعمه الخادم).
+function updatePumpFieldVisibility(){
+  const show = pumpLenSupported && $('v-type').value === 'pump';
+  $('v-pump-field').hidden = !show;
+  if(!show) $('v-pump').value = '';
 }
 
 async function submitVehicle(ev){
@@ -3415,8 +3432,29 @@ async function submitVehicle(ev){
     err.hidden = false;
     return;
   }
+  // طول المضخة: إلزامي لنوع «مضخة» فقط، رقم موجب (يقبل الكسور)، إدخال يدوي.
+  let pumpLengthM = null;
+  if(pumpLenSupported && type === 'pump'){
+    const raw = $('v-pump').value.trim();
+    if(!/^\d+(\.\d+)?$/.test(raw)){
+      err.textContent = raw === ''
+        ? 'الرجاء إدخال طول المضخة (متر) — مطلوب لنوع «مضخة».'
+        : 'طول المضخة يجب أن يكون رقمًا (مثال: 36.5 أو 42).';
+      err.hidden = false;
+      $('v-pump').focus();
+      return;
+    }
+    pumpLengthM = parseFloat(raw);
+    if(!(pumpLengthM > 0)){
+      err.textContent = 'طول المضخة يجب أن يكون أكبر من صفر.';
+      err.hidden = false;
+      $('v-pump').focus();
+      return;
+    }
+  }
   const editId = $('v-edit-id').value;
   const body = {name, baselineKm:km, type, fuelTankQty, workHoursBaseline};
+  if(pumpLenSupported) body.pumpLengthM = pumpLengthM;
   try{
     if(editId) await api('PUT', `/api/vehicles/${editId}`, body);
     else       await api('POST', '/api/vehicles', body);
@@ -3445,6 +3483,8 @@ function startEditVehicle(id){
   $('v-type').value = v.type || 'service';
   $('v-fuel').value = v.fuelTankQty ?? '';
   $('v-hours').value = v.workHoursBaseline ?? '';
+  updatePumpFieldVisibility();
+  if(!$('v-pump-field').hidden) $('v-pump').value = v.pumpLengthM ?? '';
   $('vehicle-form-title').textContent = 'تعديل بيانات آلية';
   $('v-submit-btn').textContent = 'حفظ التعديلات';
   $('v-cancel-edit').hidden = false;
@@ -3723,6 +3763,7 @@ function bindEvents(){
 
   // المدير — الآليات
   $('vehicle-form').addEventListener('submit', submitVehicle);
+  $('v-type').addEventListener('change', updatePumpFieldVisibility);
   $('v-cancel-edit').addEventListener('click', resetVehicleForm);
   $('vehicle-table-body').addEventListener('click', ev=>{
     const btn = ev.target.closest('button'); if(!btn) return;

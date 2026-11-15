@@ -36,7 +36,8 @@ const REQUIRED = [
   'lastFuelMeterReading', 'getFuelBaseline', 'setFuelBaseline', 'lastWorkHoursForVehicle', 'lastDispenserMeterReading',
   'listGuestVisits', 'insertGuestVisit', 'closeGuestVisit', 'queryGuestVisitLog',
   'guestVisitTypeSupported', 'guestVisitStats',
-  'getAlertDistanceLimit', 'setAlertDistanceLimit', 'alertsSupported', 'listAlertJustifications', 'insertAlertJustification'
+  'getAlertDistanceLimit', 'setAlertDistanceLimit', 'alertsSupported', 'listAlertJustifications', 'insertAlertJustification',
+  'vehiclePumpLengthSupported'
 ];
 
 const drivers = {
