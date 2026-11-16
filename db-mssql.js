@@ -248,6 +248,40 @@ async function init(options) {
 
 // تبريرات تنبيهات تجاوز المسافة (انظر migrations/003-alert-justifications.sql). تُنشأ مع القواعد
 // الجديدة كليًا فقط؛ القواعد القائمة لا تُعدَّل تلقائيًا عند الإقلاع.
+// الزبائن والمناطق والمحاضر (migrations/005-customers-regions-muhdars.sql): تُنشأ مع القواعد الجديدة فقط.
+const MUHDAR_DDL = [
+  `IF OBJECT_ID('dbo.customers','U') IS NULL
+   CREATE TABLE dbo.customers (
+     id         NVARCHAR(64)  NOT NULL PRIMARY KEY,
+     name       NVARCHAR(200) NOT NULL,
+     created_at NVARCHAR(40)  NOT NULL
+   )`,
+  `IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='ux_customers_name' AND object_id=OBJECT_ID('dbo.customers'))
+   CREATE UNIQUE INDEX ux_customers_name ON dbo.customers(name)`,
+  `IF OBJECT_ID('dbo.regions','U') IS NULL
+   CREATE TABLE dbo.regions (
+     id         NVARCHAR(64)  NOT NULL PRIMARY KEY,
+     name       NVARCHAR(200) NOT NULL,
+     created_at NVARCHAR(40)  NOT NULL
+   )`,
+  `IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='ux_regions_name' AND object_id=OBJECT_ID('dbo.regions'))
+   CREATE UNIQUE INDEX ux_regions_name ON dbo.regions(name)`,
+  `IF OBJECT_ID('dbo.muhdars','U') IS NULL
+   CREATE TABLE dbo.muhdars (
+     id          NVARCHAR(64)  NOT NULL PRIMARY KEY,
+     name        NVARCHAR(200) NOT NULL,
+     customer_id NVARCHAR(64)  NOT NULL CONSTRAINT fk_muhdars_customer FOREIGN KEY REFERENCES dbo.customers(id),
+     region_id   NVARCHAR(64)  NOT NULL CONSTRAINT fk_muhdars_region FOREIGN KEY REFERENCES dbo.regions(id),
+     created_at  NVARCHAR(40)  NOT NULL
+   )`,
+  `IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='ux_muhdars_name' AND object_id=OBJECT_ID('dbo.muhdars'))
+   CREATE UNIQUE INDEX ux_muhdars_name ON dbo.muhdars(name)`,
+  `IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='ix_muhdars_customer' AND object_id=OBJECT_ID('dbo.muhdars'))
+   CREATE INDEX ix_muhdars_customer ON dbo.muhdars(customer_id)`,
+  `IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='ix_muhdars_region' AND object_id=OBJECT_ID('dbo.muhdars'))
+   CREATE INDEX ix_muhdars_region ON dbo.muhdars(region_id)`
+];
+
 const ALERT_JUSTIFICATIONS_DDL = [
   `IF OBJECT_ID('dbo.alert_justifications','U') IS NULL
    CREATE TABLE dbo.alert_justifications (
@@ -474,8 +508,15 @@ async function createSchema() {
     for (const stmt of ALERT_JUSTIFICATIONS_DDL) await pool.request().query(stmt);
     // عمود طول المضخة: للقواعد الجديدة فقط؛ القواعد القائمة تُحدَّث يدويًا (migrations/004-add-pump-length.sql).
     await ensureColumn('vehicles', 'pump_length_m', 'pump_length_m FLOAT NULL');
+    // الزبائن/المناطق/المحاضر وعمود entries.muhdar_id: للقواعد الجديدة فقط (migrations/005).
+    for (const stmt of MUHDAR_DDL) await pool.request().query(stmt);
+    await ensureColumn('entries', 'muhdar_id', 'muhdar_id NVARCHAR(64) NULL');
+    await pool.request().query(
+      `IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='ix_entries_muhdar' AND object_id=OBJECT_ID('dbo.entries'))
+       CREATE INDEX ix_entries_muhdar ON dbo.entries(muhdar_id)`);
   }
   _pumpLenOk = false; _pumpLenChecked = 0;
+  _muhdarOk = false; _muhdarChecked = 0;
 }
 
 // إضافة عمود ناقص إلى جدول قائم فعلًا دون كسره — لا يوجد نظام migration عام
@@ -763,6 +804,7 @@ function entryOut(r) {
     technicianName: r.technician_name || null,
     technicianAssistant: r.technician_assistant || null,
     manualPour: !!r.manual_pour,
+    muhdarId: r.muhdar_id || null,
     notesIn: r.notes_in, status: r.status,
     createdAt: r.created_at, updatedAt: r.updated_at,
     clientRef: r.client_ref, returnClientRef: r.return_client_ref
@@ -871,12 +913,14 @@ async function insertEntry(data) {
   const now = new Date().toISOString();
   const id = newId('t');
   try {
+    const useM = await muhdarSupported();
     await q(`INSERT INTO dbo.entries
               (id, date_key, vehicle, driver, customer, depart_time, notes_out,
                return_date, return_time, km, load_qty, technician_name, technician_assistant, manual_pour,
-               notes_in, status, created_at, updated_at, client_ref)
-             VALUES (@id,@dk,@v,@d,@c,@dt,@no,NULL,NULL,NULL,@lq,@tn,@ta,@mp,N'',N'out',@ca,@ua,@cr)`,
-      [['id', NV(64), id], ['dk', NV(10), data.dateKey], ['v', NV(120), data.vehicle],
+               notes_in, status, created_at, updated_at, client_ref${useM ? ', muhdar_id' : ''})
+             VALUES (@id,@dk,@v,@d,@c,@dt,@no,NULL,NULL,NULL,@lq,@tn,@ta,@mp,N'',N'out',@ca,@ua,@cr${useM ? ',@mid' : ''})`,
+      [...(useM ? [['mid', NV(64), data.muhdarId || null]] : []),
+       ['id', NV(64), id], ['dk', NV(10), data.dateKey], ['v', NV(120), data.vehicle],
        ['d', NV(120), data.driver], ['c', NV(120), data.customer],
        ['dt', NV(5), data.departTime], ['no', NV(400), data.notesOut || ''],
        ['lq', FLT, data.loadQty === undefined || data.loadQty === null ? null : Number(data.loadQty)],
@@ -930,14 +974,16 @@ async function updateEntry(id, data) {
   const existing = await getEntry(id);
   if (!existing) return null;
   const done = data.returnTime && data.km !== null && data.km !== undefined && data.km !== '';
+  const setM = (await muhdarSupported()) && data.muhdarId !== undefined;
 
   await q(`UPDATE dbo.entries
            SET date_key=@dk, vehicle=@v, driver=@d, customer=@c, depart_time=@dt,
                notes_out=@no, load_qty=@lq, technician_name=@tn, technician_assistant=@ta, manual_pour=@mp,
                return_date=@rd, return_time=@rt, km=@km,
-               notes_in=@ni, status=@st, updated_at=@ua
+               notes_in=@ni, status=@st, updated_at=@ua${setM ? ', muhdar_id=@mid' : ''}
            WHERE id=@id`,
-    [['dk', NV(10), data.dateKey], ['v', NV(120), data.vehicle],
+    [...(setM ? [['mid', NV(64), data.muhdarId || null]] : []),
+     ['dk', NV(10), data.dateKey], ['v', NV(120), data.vehicle],
      ['d', NV(120), data.driver], ['c', NV(120), data.customer],
      ['dt', NV(5), data.departTime], ['no', NV(400), data.notesOut || ''],
      ['lq', FLT, data.loadQty === undefined || data.loadQty === null || data.loadQty === '' ? null : Number(data.loadQty)],
@@ -1506,6 +1552,137 @@ async function backupTo(file) {
   return target;
 }
 
+/* ------------------------------------------- الزبائن والمناطق والمحاضر */
+
+// هل الجداول وعمود entries.muhdar_id موجودة؟ فحص قراءة فقط. الموجب يُخزَّن، والسالب يُعاد فحصه
+// كل 30 ثانية فيُلتقط تطبيق الـ migration دون إعادة تشغيل. قبل التطبيق تبقى كتابة الزبون حرة كما كانت.
+let _muhdarOk = false, _muhdarChecked = 0;
+async function muhdarSupported() {
+  if (_muhdarOk) return true;
+  const now = Date.now();
+  if (_muhdarChecked && now - _muhdarChecked < 30000) return false;
+  _muhdarChecked = now;
+  const r = await one(`SELECT OBJECT_ID('dbo.customers','U') AS c, OBJECT_ID('dbo.regions','U') AS r,
+                              OBJECT_ID('dbo.muhdars','U') AS m, COL_LENGTH('dbo.entries','muhdar_id') AS e`);
+  _muhdarOk = !!(r && r.c && r.r && r.m && r.e !== null && r.e !== undefined);
+  return _muhdarOk;
+}
+
+function dupNameError(msg) {
+  const e = new Error(msg);
+  e.duplicateName = true;
+  return e;
+}
+
+// جدولا الزبائن والمناطق متطابقان في الشكل (id, name, created_at). أسماء الجداول ثوابت داخلية.
+function lookupOut(r) { return r ? { id: r.id, name: r.name, createdAt: r.created_at } : null; }
+async function listLookup(t) {
+  if (!(await muhdarSupported())) return [];
+  return (await all(`SELECT * FROM dbo.${t} ORDER BY name`)).map(lookupOut);
+}
+async function getLookup(t, id) { return lookupOut(await one(`SELECT * FROM dbo.${t} WHERE id = @id`, [['id', NV(64), String(id)]])); }
+async function getLookupByName(t, name) { return lookupOut(await one(`SELECT * FROM dbo.${t} WHERE name = @n`, [['n', NV(200), String(name).trim()]])); }
+async function insertLookup(t, prefix, label, name) {
+  const id = newId(prefix);
+  try {
+    await q(`INSERT INTO dbo.${t} (id, name, created_at) VALUES (@id,@n,@ca)`,
+      [['id', NV(64), id], ['n', NV(200), String(name).trim()], ['ca', NV(40), new Date().toISOString()]]);
+  } catch (err) {
+    if (isDuplicateError(err)) throw dupNameError(`${label} مسجّل مسبقًا.`);
+    throw err;
+  }
+  return getLookup(t, id);
+}
+async function updateLookup(t, label, id, name) {
+  if (!(await getLookup(t, id))) return null;
+  try {
+    await q(`UPDATE dbo.${t} SET name = @n WHERE id = @id`, [['n', NV(200), String(name).trim()], ['id', NV(64), String(id)]]);
+  } catch (err) {
+    if (isDuplicateError(err)) throw dupNameError(`${label} بهذا الاسم موجود مسبقًا.`);
+    throw err;
+  }
+  return getLookup(t, id);
+}
+async function deleteLookup(t, id) {
+  const r = await q(`DELETE FROM dbo.${t} WHERE id = @id`, [['id', NV(64), String(id)]]);
+  return ((r.rowsAffected && r.rowsAffected[0]) || 0) > 0;
+}
+
+const listCustomers = () => listLookup('customers');
+const getCustomer = id => getLookup('customers', id);
+const getCustomerByName = name => getLookupByName('customers', name);
+const insertCustomer = name => insertLookup('customers', 'c', 'هذا الزبون', name);
+const updateCustomer = (id, name) => updateLookup('customers', 'زبون', id, name);
+const deleteCustomer = id => deleteLookup('customers', id);
+const listRegions = () => listLookup('regions');
+const getRegion = id => getLookup('regions', id);
+const getRegionByName = name => getLookupByName('regions', name);
+const insertRegion = name => insertLookup('regions', 'g', 'هذه المنطقة', name);
+const updateRegion = (id, name) => updateLookup('regions', 'منطقة', id, name);
+const deleteRegion = id => deleteLookup('regions', id);
+
+async function countMuhdarsForCustomer(id) {
+  if (!(await muhdarSupported())) return 0;
+  return (await one('SELECT COUNT(*) AS n FROM dbo.muhdars WHERE customer_id = @id', [['id', NV(64), String(id)]])).n;
+}
+async function countMuhdarsForRegion(id) {
+  if (!(await muhdarSupported())) return 0;
+  return (await one('SELECT COUNT(*) AS n FROM dbo.muhdars WHERE region_id = @id', [['id', NV(64), String(id)]])).n;
+}
+// الزبون مكتوب نصًا على سجلات الخروج القديمة: لا نعدّل اسمه ولا نحذفه ما دامت له سجلات.
+async function countEntriesForCustomer(name) {
+  return (await one('SELECT COUNT(*) AS n FROM dbo.entries WHERE customer = @c', [['c', NV(200), String(name).trim()]])).n;
+}
+
+const MUHDAR_SELECT = `SELECT m.*, c.name AS customer_name, r.name AS region_name
+  FROM dbo.muhdars m JOIN dbo.customers c ON c.id = m.customer_id JOIN dbo.regions r ON r.id = m.region_id`;
+function muhdarOut(r) {
+  return r ? {
+    id: r.id, name: r.name,
+    customerId: r.customer_id, customerName: r.customer_name,
+    regionId: r.region_id, regionName: r.region_name,
+    createdAt: r.created_at
+  } : null;
+}
+async function listMuhdars() {
+  if (!(await muhdarSupported())) return [];
+  return (await all(`${MUHDAR_SELECT} ORDER BY m.name`)).map(muhdarOut);
+}
+async function getMuhdar(id) { return muhdarOut(await one(`${MUHDAR_SELECT} WHERE m.id = @id`, [['id', NV(64), String(id)]])); }
+async function getMuhdarByName(name) { return muhdarOut(await one(`${MUHDAR_SELECT} WHERE m.name = @n`, [['n', NV(200), String(name).trim()]])); }
+async function insertMuhdar(data) {
+  const id = newId('m');
+  try {
+    await q('INSERT INTO dbo.muhdars (id, name, customer_id, region_id, created_at) VALUES (@id,@n,@c,@r,@ca)',
+      [['id', NV(64), id], ['n', NV(200), String(data.name).trim()], ['c', NV(64), String(data.customerId)],
+       ['r', NV(64), String(data.regionId)], ['ca', NV(40), new Date().toISOString()]]);
+  } catch (err) {
+    if (isDuplicateError(err)) throw dupNameError('هذا المحضر مسجّل مسبقًا.');
+    throw err;
+  }
+  return getMuhdar(id);
+}
+async function updateMuhdar(id, data) {
+  if (!(await getMuhdar(id))) return null;
+  try {
+    await q('UPDATE dbo.muhdars SET name = @n, customer_id = @c, region_id = @r WHERE id = @id',
+      [['n', NV(200), String(data.name).trim()], ['c', NV(64), String(data.customerId)],
+       ['r', NV(64), String(data.regionId)], ['id', NV(64), String(id)]]);
+  } catch (err) {
+    if (isDuplicateError(err)) throw dupNameError('يوجد محضر آخر بنفس الاسم.');
+    throw err;
+  }
+  return getMuhdar(id);
+}
+async function deleteMuhdar(id) {
+  const r = await q('DELETE FROM dbo.muhdars WHERE id = @id', [['id', NV(64), String(id)]]);
+  return ((r.rowsAffected && r.rowsAffected[0]) || 0) > 0;
+}
+async function countEntriesForMuhdar(id) {
+  if (!(await muhdarSupported())) return 0;
+  return (await one('SELECT COUNT(*) AS n FROM dbo.entries WHERE muhdar_id = @id', [['id', NV(64), String(id)]])).n;
+}
+
 module.exports = {
   init, close, backupTo,
   hashPassword, verifyPassword,
@@ -1523,5 +1700,10 @@ module.exports = {
   lastFuelMeterReading, getFuelBaseline, setFuelBaseline,
   listGuestVisits, insertGuestVisit, closeGuestVisit, queryGuestVisitLog, guestVisitTypeSupported, guestVisitStats,
   getAlertDistanceLimit, setAlertDistanceLimit, alertsSupported, listAlertJustifications, insertAlertJustification,
-  vehiclePumpLengthSupported
+  vehiclePumpLengthSupported,
+  muhdarSupported,
+  listCustomers, getCustomer, getCustomerByName, insertCustomer, updateCustomer, deleteCustomer,
+  countMuhdarsForCustomer, countEntriesForCustomer,
+  listRegions, getRegion, getRegionByName, insertRegion, updateRegion, deleteRegion, countMuhdarsForRegion,
+  listMuhdars, getMuhdar, getMuhdarByName, insertMuhdar, updateMuhdar, deleteMuhdar, countEntriesForMuhdar
 };

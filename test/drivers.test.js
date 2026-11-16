@@ -37,7 +37,12 @@ const REQUIRED = [
   'listGuestVisits', 'insertGuestVisit', 'closeGuestVisit', 'queryGuestVisitLog',
   'guestVisitTypeSupported', 'guestVisitStats',
   'getAlertDistanceLimit', 'setAlertDistanceLimit', 'alertsSupported', 'listAlertJustifications', 'insertAlertJustification',
-  'vehiclePumpLengthSupported'
+  'vehiclePumpLengthSupported',
+  'muhdarSupported',
+  'listCustomers', 'getCustomer', 'getCustomerByName', 'insertCustomer', 'updateCustomer', 'deleteCustomer',
+  'countMuhdarsForCustomer', 'countEntriesForCustomer',
+  'listRegions', 'getRegion', 'getRegionByName', 'insertRegion', 'updateRegion', 'deleteRegion', 'countMuhdarsForRegion',
+  'listMuhdars', 'getMuhdar', 'getMuhdarByName', 'insertMuhdar', 'updateMuhdar', 'deleteMuhdar', 'countEntriesForMuhdar'
 ];
 
 const drivers = {

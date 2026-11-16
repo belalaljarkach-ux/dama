@@ -117,6 +117,9 @@ const DELETE_ENTRY_ROLES = ['fleet_manager'];
 
 // تنبيهات تجاوز المسافة: ضبط حدّ الكيلومترات وكتابة التبرير لمدير الآليات وحده (المنسق يرى
 // القائمة للاطلاع فقط، والأدمن يراجع المبرَّر منها). تُفرض في الخادم؛ الواجهة تقرأ permissions للإظهار.
+// إضافة محضر (POST /api/muhdars): الأدمن ومدير الآليات ومنسق الحركة. تعديل المحاضر وحذفها وإدارة الزبائن والمناطق للأدمن وحده.
+const ADD_MUHDAR_ROLES = ['admin', 'fleet_manager', 'fleet_coordinator'];
+
 const SET_ALERT_LIMIT_ROLES = ['fleet_manager'];
 const JUSTIFY_ALERT_ROLES = ['fleet_manager'];
 // سجلّ الضيوف (تبويب عرض فقط): مدير الآليات والأدمن وحدهما — لا المنسق ولا بقية الأدوار.
@@ -128,7 +131,8 @@ function permissionsFor(role) {
     editFullRecord: EDIT_FULL_RECORD_ROLES.includes(role),
     deleteEntry: DELETE_ENTRY_ROLES.includes(role),
     setAlertLimit: SET_ALERT_LIMIT_ROLES.includes(role),
-    justifyAlerts: JUSTIFY_ALERT_ROLES.includes(role)
+    justifyAlerts: JUSTIFY_ALERT_ROLES.includes(role),
+    addMuhdar: ADD_MUHDAR_ROLES.includes(role)
   };
 }
 // رحلات تجاوزت حدّ المسافة (بالكيلومتر) ضمن النافذة، بمسافة السلسلة نفسها المستعملة في التقارير.
@@ -226,6 +230,42 @@ function optionalNumber(v, label) {
   const n = Number(v);
   if (!isFinite(n) || n < 0) throw badRequest(`قيمة «${label}» غير منطقية.`);
   return n;
+}
+
+/* ------------------------------------------- السائق والزبون والمحضر: اختيار فقط
+ * الإضافة من «الإعداد الأولي» وحده. الفرض هنا في الخادم، لا في الواجهة فقط. */
+
+// السائق يجب أن يكون مسجّلًا. استثناء وحيد: تعديل سجل قديم لا يغيّر اسم سائقه (لا نكسر السجلات السابقة).
+async function resolveDriver(raw, before) {
+  const name = requireText(raw, 'السائق', 200);
+  const row = await db.getDriverByName(name);
+  if (row) return row.name;
+  if (before && String(before.driver || '').trim() === name) return name;
+  throw badRequest(`السائق «${name}» غير مسجّل في القائمة. يضيفه الأدمن من تبويب «الإعداد الأولي» أولًا.`);
+}
+
+// الزبون يأتي من المحضر المختار (محضر → زبون مرتبط)، ولا يُقبل نص حر بعد تطبيق migration 005.
+// قبل تطبيقه (لا جداول زبائن) يبقى السلوك القديم كما هو. requireMuhdar = تسجيل خروج جديد.
+async function resolveCustomerAndMuhdar(b, before, requireMuhdar) {
+  if (!(await db.muhdarSupported())) {
+    return { customer: requireText(b.customer, 'الزبون', 200), muhdarId: undefined };
+  }
+  const rawId = b.muhdarId === undefined || b.muhdarId === null ? '' : String(b.muhdarId).trim();
+  if (rawId) {
+    const mh = await db.getMuhdar(rawId);
+    if (!mh) throw badRequest('المحضر المختار غير موجود في القائمة.');
+    return { customer: mh.customerName, muhdarId: mh.id };   // الزبون من المحضر، ويُتجاهل أي نص مُرسَل
+  }
+  if (requireMuhdar) throw badRequest('الحقل «المحضر» مطلوب. اختره من القائمة (يضيفه الأدمن من «الإعداد الأولي»).');
+  // تعديل سجل بلا محضر: إمّا الزبون نفسه كما كان في السجل، أو زبون مسجّل في القائمة.
+  const customer = requireText(b.customer, 'الزبون', 200);
+  const prevMuhdar = before && before.muhdarId ? before.muhdarId : null;
+  if (before && String(before.customer || '').trim() === customer) {
+    return { customer, muhdarId: b.muhdarId === undefined ? prevMuhdar : null };
+  }
+  const row = await db.getCustomerByName(customer);
+  if (!row) throw badRequest(`الزبون «${customer}» غير مسجّل في القائمة. يضيفه الأدمن من تبويب «الإعداد الأولي» أولًا.`);
+  return { customer: row.name, muhdarId: null };
 }
 
 /* --------------------------------------------------------------- الجلسة */
@@ -347,6 +387,11 @@ async function route(req, res, url) {
         ? await db.getAlertDistanceLimit() : null,
       guestVisitTypeSupported: await db.guestVisitTypeSupported(),
       vehiclePumpLengthSupported: await db.vehiclePumpLengthSupported(),
+      // قوائم الاختيار (أسماء فقط) لكل الأدوار. فارغة وmuhdarSupported=false قبل تطبيق migration 005.
+      muhdarSupported: await db.muhdarSupported(),
+      customers: await db.listCustomers(),
+      regions: await db.listRegions(),
+      muhdars: await db.listMuhdars(),
       guestStats,
       entries: await db.listEntries(days),
       vehicles: await db.listVehicles(),
@@ -460,8 +505,8 @@ async function route(req, res, url) {
     }
 
     const vehicle  = requireText(b.vehicle, 'الآلية');
-    const driver   = requireText(b.driver, 'السائق');
-    const customer = requireText(b.customer, 'الزبون');
+    const driver   = await resolveDriver(b.driver, null);
+    const { customer, muhdarId } = await resolveCustomerAndMuhdar(b, null, true);
     const dateKey  = requireDate(b.dateKey || new Date().toISOString().slice(0, 10), 'التاريخ');
     const departTime = requireTime(b.departTime, 'وقت المغادرة');
 
@@ -498,7 +543,7 @@ async function route(req, res, url) {
     let entry;
     try {
       entry = await db.insertEntry({
-        vehicle, driver, customer, dateKey, departTime, loadQty,
+        vehicle, driver, customer, muhdarId, dateKey, departTime, loadQty,
         technicianName, technicianAssistant, manualPour,
         notesOut: str(b.notesOut, 300), clientRef
       });
@@ -521,7 +566,7 @@ async function route(req, res, url) {
       }
       throw err;
     }
-    await db.audit(actor, clientIp(req), 'depart', entry.id, { vehicle, driver, customer });
+    await db.audit(actor, clientIp(req), 'depart', entry.id, { vehicle, driver, customer, muhdarId: muhdarId || null });
     return json(res, 201, { entry });
   }
 
@@ -637,10 +682,13 @@ async function route(req, res, url) {
 
     const editVehicle = requireText(b.vehicle, 'الآلية');
     const editVehicleRow = await db.getVehicleByName(editVehicle);
+    const editDriver = await resolveDriver(b.driver, before);
+    const editCustomer = await resolveCustomerAndMuhdar(b, before, false);
     const payload = {
       vehicle:  editVehicle,
-      driver:   requireText(b.driver, 'السائق'),
-      customer: requireText(b.customer, 'الزبون'),
+      driver:   editDriver,
+      customer: editCustomer.customer,
+      muhdarId: editCustomer.muhdarId,
       dateKey:  requireDate(b.dateKey, 'التاريخ'),
       departTime: requireTime(b.departTime, 'وقت المغادرة'),
       notesOut: str(b.notesOut, 300),
@@ -808,6 +856,108 @@ async function route(req, res, url) {
     await db.deleteDriver(mDriver[1]);
     await db.audit(actor, clientIp(req), 'delete_driver', mDriver[1], null);
     return json(res, 200, { ok: true });
+  }
+
+  /* ---- الزبائن والمناطق والمحاضر: الإدارة للأدمن وحده (الإعداد الأولي) ---- */
+
+  const MUHDAR_REQUIRED_MSG = 'هذه الميزة تتطلب تطبيق migrations/005-customers-regions-muhdars.sql على قاعدة البيانات أولًا.';
+
+  async function lookupRoutes(base, label, names, api) {
+    const re = new RegExp('^/api/' + base + '/([\\w-]+)$');
+    const mm = p.match(re);
+    if (p === '/api/' + base && m === 'POST') {
+      const actor = await requireRole(req, res, 'admin'); if (!actor) return true;
+      if (!(await db.muhdarSupported())) { fail(res, 409, MUHDAR_REQUIRED_MSG); return true; }
+      const b = await readJson(req);
+      const name = requireText(b.name, `اسم ${label}`, 200);
+      let row;
+      try { row = await api.insert(name); }
+      catch (err) { if (err.duplicateName) { fail(res, 409, err.message); return true; } throw err; }
+      await db.audit(actor, clientIp(req), 'add_' + names, row.id, { name });
+      json(res, 201, { [names]: row }); return true;
+    }
+    if (mm && m === 'PUT') {
+      const actor = await requireRole(req, res, 'admin'); if (!actor) return true;
+      if (!(await db.muhdarSupported())) { fail(res, 409, MUHDAR_REQUIRED_MSG); return true; }
+      const b = await readJson(req);
+      const name = requireText(b.name, `اسم ${label}`, 200);
+      const cur = await api.get(mm[1]);
+      if (!cur) { fail(res, 404, `${label} غير موجود.`); return true; }
+      if (api.renameGuard && cur.name !== name) {
+        const msg = await api.renameGuard(cur);
+        if (msg) { fail(res, 409, msg); return true; }
+      }
+      let row;
+      try { row = await api.update(mm[1], name); }
+      catch (err) { if (err.duplicateName) { fail(res, 409, err.message); return true; } throw err; }
+      await db.audit(actor, clientIp(req), 'edit_' + names, row.id, { before: cur.name, after: name });
+      json(res, 200, { [names]: row }); return true;
+    }
+    if (mm && m === 'DELETE') {
+      const actor = await requireRole(req, res, 'admin'); if (!actor) return true;
+      if (!(await db.muhdarSupported())) { fail(res, 409, MUHDAR_REQUIRED_MSG); return true; }
+      const cur = await api.get(mm[1]);
+      if (!cur) { fail(res, 404, `${label} غير موجود.`); return true; }
+      const msg = await api.deleteGuard(cur);
+      if (msg) { fail(res, 409, msg); return true; }
+      await api.remove(mm[1]);
+      await db.audit(actor, clientIp(req), 'delete_' + names, cur.id, { name: cur.name });
+      json(res, 200, { ok: true }); return true;
+    }
+    return false;
+  }
+
+  if (await lookupRoutes('customers', 'الزبون', 'customer', {
+    insert: n => db.insertCustomer(n), get: id => db.getCustomer(id), update: (id, n) => db.updateCustomer(id, n),
+    remove: id => db.deleteCustomer(id),
+    // اسم الزبون نسخة نصية على سجلات الخروج القديمة: لا نغيّره ما دامت له سجلات (حفاظًا على البيانات السابقة).
+    renameGuard: async c => (await db.countEntriesForCustomer(c.name)) > 0
+      ? 'لا يمكن تعديل اسم زبون له سجلات سابقة. أضف زبونًا جديدًا بدلًا من ذلك.' : null,
+    deleteGuard: async c => {
+      if ((await db.countMuhdarsForCustomer(c.id)) > 0) return 'لا يمكن حذف زبون مرتبط بمحاضر. احذف محاضره أو انقلها لزبون آخر أولًا.';
+      if ((await db.countEntriesForCustomer(c.name)) > 0) return 'لا يمكن حذف زبون له سجلات سابقة.';
+      return null;
+    }
+  })) return;
+
+  if (await lookupRoutes('regions', 'المنطقة', 'region', {
+    insert: n => db.insertRegion(n), get: id => db.getRegion(id), update: (id, n) => db.updateRegion(id, n),
+    remove: id => db.deleteRegion(id),
+    deleteGuard: async g => (await db.countMuhdarsForRegion(g.id)) > 0
+      ? 'لا يمكن حذف منطقة مرتبطة بمحاضر. انقل محاضرها لمنطقة أخرى أولًا.' : null
+  })) return;
+
+  if (p === '/api/muhdars' || /^\/api\/muhdars\/[\w-]+$/.test(p)) {
+    const mMuhdar = p.match(/^\/api\/muhdars\/([\w-]+)$/);
+    if (p === '/api/muhdars' && m === 'POST' || mMuhdar && m === 'PUT') {
+      // الإضافة: الأدمن + مدير الآليات + المنسق. التعديل: الأدمن وحده.
+      const actor = await requireRole(req, res, ...(mMuhdar ? ['admin'] : ADD_MUHDAR_ROLES)); if (!actor) return;
+      if (!(await db.muhdarSupported())) return fail(res, 409, MUHDAR_REQUIRED_MSG);
+      const b = await readJson(req);
+      const name = requireText(b.name, 'اسم المحضر', 200);
+      const customerId = requireText(b.customerId, 'الزبون', 64);
+      const regionId = requireText(b.regionId, 'المنطقة', 64);
+      if (!(await db.getCustomer(customerId))) return fail(res, 400, 'الزبون المختار غير موجود في القائمة.');
+      if (!(await db.getRegion(regionId))) return fail(res, 400, 'المنطقة المختارة غير موجودة في القائمة.');
+      let row;
+      try {
+        row = mMuhdar ? await db.updateMuhdar(mMuhdar[1], { name, customerId, regionId })
+                      : await db.insertMuhdar({ name, customerId, regionId });
+      } catch (err) { if (err.duplicateName) return fail(res, 409, err.message); throw err; }
+      if (!row) return fail(res, 404, 'المحضر غير موجود.');
+      await db.audit(actor, clientIp(req), mMuhdar ? 'edit_muhdar' : 'add_muhdar', row.id, { name, customerId, regionId });
+      return json(res, mMuhdar ? 200 : 201, { muhdar: row });
+    }
+    if (mMuhdar && m === 'DELETE') {
+      const actor = await requireRole(req, res, 'admin'); if (!actor) return;
+      if (!(await db.muhdarSupported())) return fail(res, 409, MUHDAR_REQUIRED_MSG);
+      const cur = await db.getMuhdar(mMuhdar[1]);
+      if (!cur) return fail(res, 404, 'المحضر غير موجود.');
+      if ((await db.countEntriesForMuhdar(cur.id)) > 0) return fail(res, 409, 'لا يمكن حذف محضر مستخدم في سجلات خروج سابقة.');
+      await db.deleteMuhdar(cur.id);
+      await db.audit(actor, clientIp(req), 'delete_muhdar', cur.id, { name: cur.name });
+      return json(res, 200, { ok: true });
+    }
   }
 
   /* ---- المازوت: حساب المازوت فقط للكتابة ---- */

@@ -16,6 +16,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const assert = require('node:assert/strict');
+const { seedPeople } = require('./people-helper');
 const { spawn } = require('node:child_process');
 
 let pass = 0, fail = 0;
@@ -70,10 +71,11 @@ const D = '/api/alerts/distance';
   try {
     // آلية بكيلومتراج 0، ثلاث رحلات: مسافات 40 و120 و60 كم (أعمدة: 40 → 160 → 220).
     assert.equal((await call(R.admin, 'POST', '/api/vehicles', { name: 'جبالة 7', baselineKm: 0, type: 'gabbala' })).status, 201);
+    const MH = await seedPeople(call, R.admin, { drivers: ['سائق A', 'سائق B', 'سائق C'], customers: ['زبون A', 'زبون B', 'زبون C'] });
     let time = 6;
     for (const [tag, km] of [['A', 40], ['B', 160], ['C', 220]]) {
       const hh = String(time++).padStart(2, '0');
-      const e = await call(R.gate, 'POST', '/api/entries', { vehicle: 'جبالة 7', driver: 'سائق ' + tag, customer: 'زبون ' + tag, dateKey: today, departTime: hh + ':00', loadQty: 5 });
+      const e = await call(R.gate, 'POST', '/api/entries', { vehicle: 'جبالة 7', driver: 'سائق ' + tag, customer: 'زبون ' + tag, muhdarId: MH['زبون ' + tag], dateKey: today, departTime: hh + ':00', loadQty: 5 });
       assert.equal(e.status, 201, e.text);
       const r = await call(R.gate, 'POST', `/api/entries/${e.data.entry.id}/return`, { returnDate: today, returnTime: hh + ':45', km });
       assert.equal(r.status, 200, r.text);
@@ -235,7 +237,8 @@ const D = '/api/alerts/distance';
   try {
     const { call: c, roles: Q } = E;
     await c(Q.admin, 'POST', '/api/vehicles', { name: 'جبالة 9', baselineKm: 0, type: 'gabbala' });
-    const e = await c(Q.gate, 'POST', '/api/entries', { vehicle: 'جبالة 9', driver: 'س', customer: 'ز', dateKey: today, departTime: '07:00', loadQty: 1 });
+    const MH2 = await seedPeople(c, Q.admin, { drivers: ['س'], customers: ['ز'] });
+    const e = await c(Q.gate, 'POST', '/api/entries', { vehicle: 'جبالة 9', driver: 'س', customer: 'ز', muhdarId: MH2['ز'], dateKey: today, departTime: '07:00', loadQty: 1 });
     await c(Q.gate, 'POST', `/api/entries/${e.data.entry.id}/return`, { returnDate: today, returnTime: '08:00', km: 300 });
     await c(Q.manager, 'PUT', D + '-limit', { limitKm: 100 });
     await check('الإقلاع لا ينشئ الجدول تلقائيًا (لا تعديل على المخطط)', async () => {
