@@ -15,6 +15,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const assert = require('node:assert/strict');
+const { seedPeople } = require('./people-helper');
 const { spawn } = require('node:child_process');
 
 let pass = 0, fail = 0;
@@ -108,8 +109,9 @@ const ok = async (...a) => { const r = await call(...a); if (r.status >= 400) th
     // بيانات اختبار
     for (const [name, type] of [['جبالة 1', 'gabbala'], ['جبالة 2', 'gabbala'], ['خدمة 1', 'service'], ['جبالة 3', 'gabbala'], ['جبالة 4', 'gabbala']])
       await ok(admin, 'POST', '/api/vehicles', { name, baselineKm: 0, type });
+    const MH = await seedPeople(call, admin, { drivers: ['سائق جبالة 1', 'سائق جبالة 2', 'سائق جبالة 3', 'سائق جبالة 4', 'سائق جديد', 'س'], customers: ['زبون', 'زبون جديد', 'ز'] });
     const dep = async (vehicle, extra) => (await ok(J.gate, 'POST', '/api/entries',
-      Object.assign({ vehicle, driver: 'سائق ' + vehicle, customer: 'زبون', dateKey: '2026-03-10', departTime: '08:00', loadQty: 8 }, extra))).data.entry;
+      Object.assign({ vehicle, driver: 'سائق ' + vehicle, customer: 'زبون', muhdarId: MH['زبون'], dateKey: '2026-03-10', departTime: '08:00', loadQty: 8 }, extra))).data.entry;
     const ret = async (e, km) => (await ok(J.gate, 'POST', `/api/entries/${e.id}/return`, { returnDate: '2026-03-10', returnTime: '10:00', km })).data.entry;
     const eMain = await ret(await dep('جبالة 1'), 40);                       // للتعديل
     const eOther = await ret(await dep('جبالة 2'), 40);                      // يجب أن يبقى كما هو
@@ -203,7 +205,7 @@ const ok = async (...a) => { const r = await call(...a); if (r.status >= 400) th
       for (const [u, r] of [['بوابة', 'gate'], ['مدير_الاليات', 'fleet_manager'], ['المازوت', 'fuel'], ['مدير_مستودع_المازوت', 'fuel_warehouse_manager'], ['مسؤول_الموارد_البشرية', 'hr']])
         assert.equal((await login(u, pwOf(u))).body.role, r); });
     await check('البوابة ما زالت تسجّل مغادرة، والأدمن ما زال يدير المستخدمين', async () => {
-      assert.equal((await call(J.gate, 'POST', '/api/entries', { vehicle: 'خدمة 1', driver: 'س', customer: 'ز', dateKey: '2026-03-12', departTime: '08:00' })).status, 201);
+      assert.equal((await call(J.gate, 'POST', '/api/entries', { vehicle: 'خدمة 1', driver: 'س', customer: 'ز', muhdarId: MH['ز'], dateKey: '2026-03-12', departTime: '08:00' })).status, 201);
       assert.equal((await call(admin, 'GET', '/api/users')).status, 200); });
 
     console.log('\nترقية قاعدة قائمة (بلا حساب منسق) ثم إعادة التشغيل');

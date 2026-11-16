@@ -13,6 +13,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const assert = require('node:assert/strict');
+const { seedPeople } = require('./people-helper');
 const { spawn } = require('node:child_process');
 const core = require('../reports-core');
 
@@ -127,9 +128,10 @@ async function call(cookie, method, url, body) {
 
     for (const [name, type] of [['جبالة 1', 'gabbala'], ['جبالة 2', 'gabbala'], ['مضخة 1', 'pump']])
       await call(admin, 'POST', '/api/vehicles', { name, baselineKm: 0, type, pumpLengthM: type === 'pump' ? 30 : undefined });
+    const MH = await seedPeople(call, admin, { drivers: ['سائق جبالة 1', 'سائق جبالة 2', 'سائق مضخة 1'], customers: ['زبون أ', 'زبون ب', 'زبون اليوم'] });
     const km = {};
     async function trip(vehicle, customer, dateKey, dep, retDate, ret, kmv) {
-      const b = { vehicle, driver: 'سائق ' + vehicle, customer, dateKey, departTime: dep };
+      const b = { vehicle, driver: 'سائق ' + vehicle, customer, muhdarId: MH[customer], dateKey, departTime: dep };
       if (vehicle.startsWith('جبالة')) b.loadQty = 8;
       if (vehicle.startsWith('مضخة')) { b.technicianName = 'فني'; b.technicianAssistant = 'مساعد'; }
       const { data } = await call(gate, 'POST', '/api/entries', b);

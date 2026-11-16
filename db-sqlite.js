@@ -63,6 +63,29 @@ const ALERT_JUSTIFICATIONS_DDL = `
   CREATE INDEX IF NOT EXISTS ix_alert_just_at ON alert_justifications(justified_at);
 `;
 
+// الزبائن والمناطق والمحاضر (migrations/005-customers-regions-muhdars.sql): تُنشأ مع القواعد الجديدة فقط.
+const MUHDAR_DDL = `
+  CREATE TABLE IF NOT EXISTS customers (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS regions (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS muhdars (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL UNIQUE,
+    customer_id TEXT NOT NULL REFERENCES customers(id),
+    region_id   TEXT NOT NULL REFERENCES regions(id),
+    created_at  TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS ix_muhdars_customer ON muhdars(customer_id);
+  CREATE INDEX IF NOT EXISTS ix_muhdars_region ON muhdars(region_id);
+`;
+
 function init(options) {
   const dataDir = (options && options.dataDir) || options;
   fs.mkdirSync(dataDir, { recursive: true });
@@ -223,6 +246,14 @@ function init(options) {
   // عمود طول المضخة: للقواعد الجديدة فقط؛ القواعد القائمة تُحدَّث يدويًا (migrations/004-add-pump-length.sql).
   if (freshDb) ensureColumn('vehicles', 'pump_length_m', 'pump_length_m REAL');
   _pumpLenOk = false; _pumpLenChecked = 0;
+  // الزبائن/المناطق/المحاضر وعمود entries.muhdar_id: للقواعد الجديدة فقط؛ القواعد القائمة تُحدَّث يدويًا
+  // (migrations/005-customers-regions-muhdars.sql).
+  if (freshDb) {
+    db.exec(MUHDAR_DDL);
+    ensureColumn('entries', 'muhdar_id', 'muhdar_id TEXT');
+    db.exec('CREATE INDEX IF NOT EXISTS ix_entries_muhdar ON entries(muhdar_id)');
+  }
+  _muhdarOk = false; _muhdarChecked = 0;
 
   // لا يوجد نظام migration عام هنا: الجداول القديمة (sessions، audit، vehicles،
   // entries) قد تكون أُنشئت قبل إضافة هذه الحقول، فنضيف الأعمدة الناقصة يدويًا.
@@ -498,6 +529,7 @@ function entryOut(r) {
     technicianName: r.technician_name || null,
     technicianAssistant: r.technician_assistant || null,
     manualPour: !!r.manual_pour,
+    muhdarId: r.muhdar_id || null,
     notesIn: r.notes_in, status: r.status,
     createdAt: r.created_at, updatedAt: r.updated_at,
     clientRef: r.client_ref, returnClientRef: r.return_client_ref
@@ -601,17 +633,19 @@ function insertEntry(data) {
   const now = new Date().toISOString();
   const id = newId('t');
   try {
+    const useM = muhdarSupported();
     db.prepare(`INSERT INTO entries
         (id, date_key, vehicle, driver, customer, depart_time, notes_out,
          return_date, return_time, km, load_qty, technician_name, technician_assistant, manual_pour,
-         notes_in, status, created_at, updated_at, client_ref)
-        VALUES (?,?,?,?,?,?,?,NULL,NULL,NULL,?,?,?,?,'','out',?,?,?)`)
+         notes_in, status, created_at, updated_at, client_ref${useM ? ', muhdar_id' : ''})
+        VALUES (?,?,?,?,?,?,?,NULL,NULL,NULL,?,?,?,?,'','out',?,?,?${useM ? ',?' : ''})`)
       .run(id, data.dateKey, data.vehicle, data.driver, data.customer,
            data.departTime, data.notesOut || '',
            data.loadQty === undefined || data.loadQty === null ? null : Number(data.loadQty),
            data.technicianName || null, data.technicianAssistant || null,
            data.manualPour ? 1 : 0,
-           now, now, data.clientRef || null);
+           now, now, data.clientRef || null,
+           ...(useM ? [data.muhdarId || null] : []));
   } catch (err) {
     // خرق الفهرس الفريد = الآلية في الخارج أصلًا. نُعلِّم الخطأ ليترجمه
     // الخادم إلى 409، تمامًا كما يفعل محرّك Mongo.
@@ -658,9 +692,10 @@ function updateEntry(id, data) {
   const existing = getEntry(id);
   if (!existing) return null;
   const done = data.returnTime && data.km !== null && data.km !== undefined && data.km !== '';
+  const setM = muhdarSupported() && data.muhdarId !== undefined;
   db.prepare(`UPDATE entries SET date_key=?, vehicle=?, driver=?, customer=?, depart_time=?,
               notes_out=?, load_qty=?, technician_name=?, technician_assistant=?, manual_pour=?,
-              return_date=?, return_time=?, km=?, notes_in=?, status=?, updated_at=?
+              return_date=?, return_time=?, km=?, notes_in=?, status=?, updated_at=?${setM ? ', muhdar_id=?' : ''}
               WHERE id=?`)
     .run(data.dateKey, data.vehicle, data.driver, data.customer, data.departTime,
          data.notesOut || '',
@@ -671,7 +706,7 @@ function updateEntry(id, data) {
          done ? Number(data.km) : null,
          data.notesIn || '',                     // لا تضيع ملاحظة العودة عند تعديل سجل غير مكتمل
          done ? 'done' : 'out',
-         new Date().toISOString(), String(id));
+         new Date().toISOString(), ...(setM ? [data.muhdarId || null] : []), String(id));
   return getEntry(id);
 }
 
@@ -1152,6 +1187,125 @@ function close() {
   if (db) { db.close(); db = null; }
 }
 
+/* ------------------------------------------- الزبائن والمناطق والمحاضر */
+
+// هل الجداول وعمود entries.muhdar_id موجودة؟ فحص قراءة فقط. الموجب يُخزَّن، والسالب يُعاد فحصه
+// كل 30 ثانية فيُلتقط تطبيق الـ migration دون إعادة تشغيل. قبل التطبيق تبقى كتابة الزبون حرة كما كانت.
+let _muhdarOk = false, _muhdarChecked = 0;
+function muhdarSupported() {
+  if (_muhdarOk) return true;
+  const now = Date.now();
+  if (_muhdarChecked && now - _muhdarChecked < 30000) return false;
+  _muhdarChecked = now;
+  const has = n => !!db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`).get(n);
+  _muhdarOk = has('customers') && has('regions') && has('muhdars')
+    && db.prepare(`SELECT name FROM pragma_table_info('entries')`).all().some(c => c.name === 'muhdar_id');
+  return _muhdarOk;
+}
+
+function dupNameError(msg) {
+  const e = new Error(msg);
+  e.duplicateName = true;
+  return e;
+}
+
+// جدولا الزبائن والمناطق متطابقان في الشكل (id, name, created_at). أسماء الجداول ثوابت داخلية.
+function lookupOut(r) { return r ? { id: r.id, name: r.name, createdAt: r.created_at } : null; }
+function listLookup(t) {
+  if (!muhdarSupported()) return [];
+  return db.prepare(`SELECT * FROM ${t} ORDER BY name`).all().map(lookupOut);
+}
+function getLookup(t, id) { return lookupOut(db.prepare(`SELECT * FROM ${t} WHERE id = ?`).get(String(id))); }
+function getLookupByName(t, name) { return lookupOut(db.prepare(`SELECT * FROM ${t} WHERE name = ?`).get(String(name).trim())); }
+function insertLookup(t, prefix, label, name) {
+  const id = newId(prefix);
+  try {
+    db.prepare(`INSERT INTO ${t} (id, name, created_at) VALUES (?,?,?)`).run(id, String(name).trim(), new Date().toISOString());
+  } catch (err) {
+    if (/UNIQUE constraint failed/i.test(err.message)) throw dupNameError(`${label} مسجّل مسبقًا.`);
+    throw err;
+  }
+  return getLookup(t, id);
+}
+function updateLookup(t, label, id, name) {
+  if (!getLookup(t, id)) return null;
+  try {
+    db.prepare(`UPDATE ${t} SET name = ? WHERE id = ?`).run(String(name).trim(), String(id));
+  } catch (err) {
+    if (/UNIQUE constraint failed/i.test(err.message)) throw dupNameError(`${label} بهذا الاسم موجود مسبقًا.`);
+    throw err;
+  }
+  return getLookup(t, id);
+}
+function deleteLookup(t, id) { return db.prepare(`DELETE FROM ${t} WHERE id = ?`).run(String(id)).changes > 0; }
+
+const listCustomers = () => listLookup('customers');
+const getCustomer = id => getLookup('customers', id);
+const getCustomerByName = name => getLookupByName('customers', name);
+const insertCustomer = name => insertLookup('customers', 'c', 'هذا الزبون', name);
+const updateCustomer = (id, name) => updateLookup('customers', 'زبون', id, name);
+const deleteCustomer = id => deleteLookup('customers', id);
+const listRegions = () => listLookup('regions');
+const getRegion = id => getLookup('regions', id);
+const getRegionByName = name => getLookupByName('regions', name);
+const insertRegion = name => insertLookup('regions', 'g', 'هذه المنطقة', name);
+const updateRegion = (id, name) => updateLookup('regions', 'منطقة', id, name);
+const deleteRegion = id => deleteLookup('regions', id);
+
+function countMuhdarsForCustomer(id) {
+  return muhdarSupported() ? db.prepare('SELECT COUNT(*) AS n FROM muhdars WHERE customer_id = ?').get(String(id)).n : 0;
+}
+function countMuhdarsForRegion(id) {
+  return muhdarSupported() ? db.prepare('SELECT COUNT(*) AS n FROM muhdars WHERE region_id = ?').get(String(id)).n : 0;
+}
+// الزبون مكتوب نصًا على سجلات الخروج القديمة: لا نعدّل اسمه ولا نحذفه ما دامت له سجلات.
+function countEntriesForCustomer(name) {
+  return db.prepare('SELECT COUNT(*) AS n FROM entries WHERE customer = ?').get(String(name).trim()).n;
+}
+
+const MUHDAR_SELECT = `SELECT m.*, c.name AS customer_name, r.name AS region_name
+  FROM muhdars m JOIN customers c ON c.id = m.customer_id JOIN regions r ON r.id = m.region_id`;
+function muhdarOut(r) {
+  return r ? {
+    id: r.id, name: r.name,
+    customerId: r.customer_id, customerName: r.customer_name,
+    regionId: r.region_id, regionName: r.region_name,
+    createdAt: r.created_at
+  } : null;
+}
+function listMuhdars() {
+  if (!muhdarSupported()) return [];
+  return db.prepare(`${MUHDAR_SELECT} ORDER BY m.name`).all().map(muhdarOut);
+}
+function getMuhdar(id) { return muhdarOut(db.prepare(`${MUHDAR_SELECT} WHERE m.id = ?`).get(String(id))); }
+function getMuhdarByName(name) { return muhdarOut(db.prepare(`${MUHDAR_SELECT} WHERE m.name = ?`).get(String(name).trim())); }
+function insertMuhdar(data) {
+  const id = newId('m');
+  try {
+    db.prepare('INSERT INTO muhdars (id, name, customer_id, region_id, created_at) VALUES (?,?,?,?,?)')
+      .run(id, String(data.name).trim(), String(data.customerId), String(data.regionId), new Date().toISOString());
+  } catch (err) {
+    if (/UNIQUE constraint failed/i.test(err.message)) throw dupNameError('هذا المحضر مسجّل مسبقًا.');
+    throw err;
+  }
+  return getMuhdar(id);
+}
+function updateMuhdar(id, data) {
+  if (!getMuhdar(id)) return null;
+  try {
+    db.prepare('UPDATE muhdars SET name = ?, customer_id = ?, region_id = ? WHERE id = ?')
+      .run(String(data.name).trim(), String(data.customerId), String(data.regionId), String(id));
+  } catch (err) {
+    if (/UNIQUE constraint failed/i.test(err.message)) throw dupNameError('يوجد محضر آخر بنفس الاسم.');
+    throw err;
+  }
+  return getMuhdar(id);
+}
+function deleteMuhdar(id) { return db.prepare('DELETE FROM muhdars WHERE id = ?').run(String(id)).changes > 0; }
+function countEntriesForMuhdar(id) {
+  return muhdarSupported() ? db.prepare('SELECT COUNT(*) AS n FROM entries WHERE muhdar_id = ?').get(String(id)).n : 0;
+}
+
 module.exports = {
   init, close, backupTo,
   hashPassword, verifyPassword,
@@ -1169,5 +1323,10 @@ module.exports = {
   lastFuelMeterReading, getFuelBaseline, setFuelBaseline,
   listGuestVisits, insertGuestVisit, closeGuestVisit, queryGuestVisitLog, guestVisitTypeSupported, guestVisitStats,
   getAlertDistanceLimit, setAlertDistanceLimit, alertsSupported, listAlertJustifications, insertAlertJustification,
-  vehiclePumpLengthSupported
+  vehiclePumpLengthSupported,
+  muhdarSupported,
+  listCustomers, getCustomer, getCustomerByName, insertCustomer, updateCustomer, deleteCustomer,
+  countMuhdarsForCustomer, countEntriesForCustomer,
+  listRegions, getRegion, getRegionByName, insertRegion, updateRegion, deleteRegion, countMuhdarsForRegion,
+  listMuhdars, getMuhdar, getMuhdarByName, insertMuhdar, updateMuhdar, deleteMuhdar, countEntriesForMuhdar
 };

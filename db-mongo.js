@@ -169,7 +169,10 @@ async function init(options) {
     fuelFills:  db.collection('fuel_fills'),
     fuelSupply: db.collection('fuel_supply'),
     guestVisits: db.collection('guest_visits'),
-    alertJustifications: db.collection('alert_justifications')
+    alertJustifications: db.collection('alert_justifications'),
+    customers: db.collection('customers'),
+    regions:   db.collection('regions'),
+    muhdars:   db.collection('muhdars')
   };
 
   // الفهارس. `unique` على اسم الآلية يجعل منع التكرار قاعدة في قاعدة البيانات
@@ -179,6 +182,11 @@ async function init(options) {
   await col.users.createIndex({ username: 1 }, { unique: true });
   // اسم فريد لكل سائق — نفس المبدأ.
   await col.drivers.createIndex({ name: 1 }, { unique: true });
+  // الزبائن والمناطق والمحاضر: اسم فريد لكلٍّ (MongoDB بلا مخطط ثابت فلا migration).
+  await col.customers.createIndex({ name: 1 }, { unique: true });
+  await col.regions.createIndex({ name: 1 }, { unique: true });
+  await col.muhdars.createIndex({ name: 1 }, { unique: true });
+  await col.entries.createIndex({ muhdarId: 1 });
   await col.entries.createIndex({ status: 1 });
   await col.entries.createIndex({ dateKey: -1, departTime: -1 });
   await col.entries.createIndex({ vehicle: 1 });
@@ -587,6 +595,7 @@ async function insertEntry(data) {
     technicianName: data.technicianName || null,
     technicianAssistant: data.technicianAssistant || null,
     manualPour: !!data.manualPour,
+    muhdarId: data.muhdarId || null,
     notesIn: '',
     status: 'out', createdAt: now, updatedAt: now,
     returnClientRef: null
@@ -640,9 +649,11 @@ async function updateEntry(id, data) {
   if (!existing) return null;
   const done = data.returnTime && data.km !== null && data.km !== undefined && data.km !== '';
 
+  const muhdarSet = data.muhdarId !== undefined ? { muhdarId: data.muhdarId || null } : {};
   const res = await col.entries.findOneAndUpdate(
     { _id: String(id) },
     { $set: {
+        ...muhdarSet,
         dateKey: data.dateKey, vehicle: data.vehicle, driver: data.driver,
         customer: data.customer, departTime: data.departTime,
         notesOut: data.notesOut || '',
@@ -1147,6 +1158,113 @@ async function backupTo(file) {
   return target;
 }
 
+/* ------------------------------------------- الزبائن والمناطق والمحاضر */
+
+// MongoDB بلا مخطط ثابت: الزبائن والمناطق والمحاضر وحقل muhdarId تعمل دائمًا ولا تحتاج migration.
+async function muhdarSupported() { return true; }
+
+function dupNameError(msg) {
+  const e = new Error(msg);
+  e.duplicateName = true;
+  return e;
+}
+
+function lookupOut(doc) {
+  const r = stripId(doc);
+  return r ? { id: r.id, name: r.name, createdAt: r.createdAt } : null;
+}
+async function listLookup(c) { return (await c.find({}).sort({ name: 1 }).toArray()).map(lookupOut); }
+async function getLookup(c, id) { return lookupOut(await c.findOne({ _id: String(id) })); }
+async function getLookupByName(c, name) { return lookupOut(await c.findOne({ name: String(name).trim() })); }
+async function insertLookup(c, prefix, label, name) {
+  const id = newId(prefix);
+  try {
+    await c.insertOne({ _id: id, id, name: String(name).trim(), createdAt: new Date().toISOString() });
+  } catch (err) {
+    if (err.code === 11000) throw dupNameError(`${label} مسجّل مسبقًا.`);
+    throw err;
+  }
+  return getLookup(c, id);
+}
+async function updateLookup(c, label, id, name) {
+  if (!(await getLookup(c, id))) return null;
+  try {
+    await c.updateOne({ _id: String(id) }, { $set: { name: String(name).trim() } });
+  } catch (err) {
+    if (err.code === 11000) throw dupNameError(`${label} بهذا الاسم موجود مسبقًا.`);
+    throw err;
+  }
+  return getLookup(c, id);
+}
+async function deleteLookup(c, id) { return (await c.deleteOne({ _id: String(id) })).deletedCount > 0; }
+
+const listCustomers = () => listLookup(col.customers);
+const getCustomer = id => getLookup(col.customers, id);
+const getCustomerByName = name => getLookupByName(col.customers, name);
+const insertCustomer = name => insertLookup(col.customers, 'c', 'هذا الزبون', name);
+const updateCustomer = (id, name) => updateLookup(col.customers, 'زبون', id, name);
+const deleteCustomer = id => deleteLookup(col.customers, id);
+const listRegions = () => listLookup(col.regions);
+const getRegion = id => getLookup(col.regions, id);
+const getRegionByName = name => getLookupByName(col.regions, name);
+const insertRegion = name => insertLookup(col.regions, 'g', 'هذه المنطقة', name);
+const updateRegion = (id, name) => updateLookup(col.regions, 'منطقة', id, name);
+const deleteRegion = id => deleteLookup(col.regions, id);
+
+async function countMuhdarsForCustomer(id) { return col.muhdars.countDocuments({ customerId: String(id) }); }
+async function countMuhdarsForRegion(id) { return col.muhdars.countDocuments({ regionId: String(id) }); }
+// الزبون مكتوب نصًا على سجلات الخروج القديمة: لا نعدّل اسمه ولا نحذفه ما دامت له سجلات.
+async function countEntriesForCustomer(name) { return col.entries.countDocuments({ customer: String(name).trim() }); }
+
+// المحضر يُخزَّن بمعرّفَي الزبون والمنطقة؛ الأسماء تُضمَّن عند القراءة.
+async function muhdarOut(doc) {
+  const r = stripId(doc);
+  if (!r) return null;
+  const [c, g] = await Promise.all([
+    col.customers.findOne({ _id: r.customerId }), col.regions.findOne({ _id: r.regionId })
+  ]);
+  return {
+    id: r.id, name: r.name,
+    customerId: r.customerId, customerName: c ? c.name : '',
+    regionId: r.regionId, regionName: g ? g.name : '',
+    createdAt: r.createdAt
+  };
+}
+async function listMuhdars() {
+  const rows = await col.muhdars.find({}).sort({ name: 1 }).toArray();
+  return Promise.all(rows.map(muhdarOut));
+}
+async function getMuhdar(id) { return muhdarOut(await col.muhdars.findOne({ _id: String(id) })); }
+async function getMuhdarByName(name) { return muhdarOut(await col.muhdars.findOne({ name: String(name).trim() })); }
+async function insertMuhdar(data) {
+  const id = newId('m');
+  try {
+    await col.muhdars.insertOne({
+      _id: id, id, name: String(data.name).trim(),
+      customerId: String(data.customerId), regionId: String(data.regionId),
+      createdAt: new Date().toISOString()
+    });
+  } catch (err) {
+    if (err.code === 11000) throw dupNameError('هذا المحضر مسجّل مسبقًا.');
+    throw err;
+  }
+  return getMuhdar(id);
+}
+async function updateMuhdar(id, data) {
+  if (!(await getMuhdar(id))) return null;
+  try {
+    await col.muhdars.updateOne({ _id: String(id) }, { $set: {
+      name: String(data.name).trim(), customerId: String(data.customerId), regionId: String(data.regionId)
+    } });
+  } catch (err) {
+    if (err.code === 11000) throw dupNameError('يوجد محضر آخر بنفس الاسم.');
+    throw err;
+  }
+  return getMuhdar(id);
+}
+async function deleteMuhdar(id) { return (await col.muhdars.deleteOne({ _id: String(id) })).deletedCount > 0; }
+async function countEntriesForMuhdar(id) { return col.entries.countDocuments({ muhdarId: String(id) }); }
+
 module.exports = {
   init, close, backupTo,
   hashPassword, verifyPassword,
@@ -1164,5 +1282,10 @@ module.exports = {
   lastFuelMeterReading, getFuelBaseline, setFuelBaseline,
   listGuestVisits, insertGuestVisit, closeGuestVisit, queryGuestVisitLog, guestVisitTypeSupported, guestVisitStats,
   getAlertDistanceLimit, setAlertDistanceLimit, alertsSupported, listAlertJustifications, insertAlertJustification,
-  vehiclePumpLengthSupported
+  vehiclePumpLengthSupported,
+  muhdarSupported,
+  listCustomers, getCustomer, getCustomerByName, insertCustomer, updateCustomer, deleteCustomer,
+  countMuhdarsForCustomer, countEntriesForCustomer,
+  listRegions, getRegion, getRegionByName, insertRegion, updateRegion, deleteRegion, countMuhdarsForRegion,
+  listMuhdars, getMuhdar, getMuhdarByName, insertMuhdar, updateMuhdar, deleteMuhdar, countEntriesForMuhdar
 };
