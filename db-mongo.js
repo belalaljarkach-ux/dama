@@ -494,6 +494,16 @@ async function listAudit(limit) {
   }));
 }
 
+// سجل التدقيق لنافذة زمنية [sinceIso, untilIso) — الأحدث أولًا (at نص ISO).
+async function listAuditBetween(sinceIso, untilIso, limit) {
+  const n = Math.min(Number(limit) || 1000, 1000);
+  const rows = await col.audit.find({ at: { $gte: String(sinceIso), $lt: String(untilIso) } }).sort({ at: -1 }).limit(n).toArray();
+  return rows.map(r => ({
+    id: String(r._id), at: r.at, username: r.username || '-', role: r.role, ip: r.ip,
+    action: r.action, entity_id: r.entityId, detail: r.detail
+  }));
+}
+
 /* --------------------------------------------------------- تحويل الصفوف */
 
 function stripId(doc) {
@@ -1271,7 +1281,7 @@ module.exports = {
   insertUser, getUserByUsername, getUser, listUsers, updateUser, setUserActive, changeUserPassword,
   login, logout, sessionUser, purgeExpiredSessions,
   checkLockout, noteLoginFailure, clearLoginFailures,
-  audit, listAudit,
+  audit, listAudit, listAuditBetween,
   listVehicles, listEntries, listEntriesRange, getEntry, getEntryByClientRef, getVehicle, getVehicleByName,
   lastKmForVehicle, vehicleIsOut, countEntriesForVehicle,
   insertEntry, closeEntry, updateEntry, deleteEntry,

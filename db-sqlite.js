@@ -517,6 +517,12 @@ function listAudit(limit) {
   return db.prepare('SELECT * FROM audit ORDER BY id DESC LIMIT ?').all(Math.min(Number(limit) || 200, 1000));
 }
 
+// سجل التدقيق لنافذة زمنية [sinceIso, untilIso) — الأحدث أولًا. at مخزَّن بصيغة ISO (UTC) فالمقارنة النصية صحيحة.
+function listAuditBetween(sinceIso, untilIso, limit) {
+  return db.prepare('SELECT * FROM audit WHERE at >= ? AND at < ? ORDER BY id DESC LIMIT ?')
+    .all(String(sinceIso), String(untilIso), Math.min(Number(limit) || 1000, 1000));
+}
+
 /* --------------------------------------------------------- تحويل الصفوف */
 
 function entryOut(r) {
@@ -1312,7 +1318,7 @@ module.exports = {
   insertUser, getUserByUsername, getUser, listUsers, updateUser, setUserActive, changeUserPassword,
   login, logout, sessionUser, purgeExpiredSessions,
   checkLockout, noteLoginFailure, clearLoginFailures,
-  audit, listAudit,
+  audit, listAudit, listAuditBetween,
   listVehicles, listEntries, listEntriesRange, getEntry, getEntryByClientRef, getVehicle, getVehicleByName,
   lastKmForVehicle, vehicleIsOut, countEntriesForVehicle,
   insertEntry, closeEntry, updateEntry, deleteEntry,
