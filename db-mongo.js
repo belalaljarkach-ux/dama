@@ -1162,6 +1162,9 @@ async function backupTo(file) {
 
 // MongoDB بلا مخطط ثابت: الزبائن والمناطق والمحاضر وحقل muhdarId تعمل دائمًا ولا تحتاج migration.
 async function muhdarSupported() { return true; }
+// بلا مخطط ثابت: حقول التواصل وبُعد المسافة تعمل دائمًا ولا تحتاج migration 006.
+async function customerContactSupported() { return true; }
+async function muhdarDistanceSupported() { return true; }
 
 function dupNameError(msg) {
   const e = new Error(msg);
@@ -1171,25 +1174,40 @@ function dupNameError(msg) {
 
 function lookupOut(doc) {
   const r = stripId(doc);
-  return r ? { id: r.id, name: r.name, createdAt: r.createdAt } : null;
+  if (!r) return null;
+  const out = { id: r.id, name: r.name, createdAt: r.createdAt };
+  // الزبون: اسم التواصل والهاتف (فارغان للسجلات القديمة)
+  if ('contactPerson' in r || 'phone' in r) { out.contactPerson = r.contactPerson || ''; out.phone = r.phone || ''; }
+  return out;
 }
-async function listLookup(c) { return (await c.find({}).sort({ name: 1 }).toArray()).map(lookupOut); }
-async function getLookup(c, id) { return lookupOut(await c.findOne({ _id: String(id) })); }
-async function getLookupByName(c, name) { return lookupOut(await c.findOne({ name: String(name).trim() })); }
-async function insertLookup(c, prefix, label, name) {
+const withContact = o => ({ ...o, contactPerson: o.contactPerson || '', phone: o.phone || '' });
+async function listLookup(c) {
+  const rows = (await c.find({}).sort({ name: 1 }).toArray()).map(lookupOut);
+  return c === col.customers ? rows.map(withContact) : rows;
+}
+async function getLookup(c, id) {
+  const o = lookupOut(await c.findOne({ _id: String(id) }));
+  return o && c === col.customers ? withContact(o) : o;
+}
+async function getLookupByName(c, name) {
+  const o = lookupOut(await c.findOne({ name: String(name).trim() }));
+  return o && c === col.customers ? withContact(o) : o;
+}
+// extra: حقول إضافية تُخزَّن مع الوثيقة
+async function insertLookup(c, prefix, label, name, extra) {
   const id = newId(prefix);
   try {
-    await c.insertOne({ _id: id, id, name: String(name).trim(), createdAt: new Date().toISOString() });
+    await c.insertOne({ _id: id, id, name: String(name).trim(), createdAt: new Date().toISOString(), ...(extra || {}) });
   } catch (err) {
     if (err.code === 11000) throw dupNameError(`${label} مسجّل مسبقًا.`);
     throw err;
   }
   return getLookup(c, id);
 }
-async function updateLookup(c, label, id, name) {
+async function updateLookup(c, label, id, name, extra) {
   if (!(await getLookup(c, id))) return null;
   try {
-    await c.updateOne({ _id: String(id) }, { $set: { name: String(name).trim() } });
+    await c.updateOne({ _id: String(id) }, { $set: { name: String(name).trim(), ...(extra || {}) } });
   } catch (err) {
     if (err.code === 11000) throw dupNameError(`${label} بهذا الاسم موجود مسبقًا.`);
     throw err;
@@ -1201,8 +1219,10 @@ async function deleteLookup(c, id) { return (await c.deleteOne({ _id: String(id)
 const listCustomers = () => listLookup(col.customers);
 const getCustomer = id => getLookup(col.customers, id);
 const getCustomerByName = name => getLookupByName(col.customers, name);
-const insertCustomer = name => insertLookup(col.customers, 'c', 'هذا الزبون', name);
-const updateCustomer = (id, name) => updateLookup(col.customers, 'زبون', id, name);
+// contact: { contactPerson, phone } أو undefined (لا تغيير)
+const customerExtra = contact => contact ? { contactPerson: contact.contactPerson || null, phone: contact.phone || null } : undefined;
+const insertCustomer = (name, contact) => insertLookup(col.customers, 'c', 'هذا الزبون', name, customerExtra(contact));
+const updateCustomer = (id, name, contact) => updateLookup(col.customers, 'زبون', id, name, customerExtra(contact));
 const deleteCustomer = id => deleteLookup(col.customers, id);
 const listRegions = () => listLookup(col.regions);
 const getRegion = id => getLookup(col.regions, id);
@@ -1227,6 +1247,7 @@ async function muhdarOut(doc) {
     id: r.id, name: r.name,
     customerId: r.customerId, customerName: c ? c.name : '',
     regionId: r.regionId, regionName: g ? g.name : '',
+    distanceKm: r.distanceKm === null || r.distanceKm === undefined ? null : r.distanceKm,
     createdAt: r.createdAt
   };
 }
@@ -1242,6 +1263,7 @@ async function insertMuhdar(data) {
     await col.muhdars.insertOne({
       _id: id, id, name: String(data.name).trim(),
       customerId: String(data.customerId), regionId: String(data.regionId),
+      distanceKm: data.distanceKm === undefined || data.distanceKm === '' ? null : data.distanceKm,
       createdAt: new Date().toISOString()
     });
   } catch (err) {
@@ -1254,7 +1276,8 @@ async function updateMuhdar(id, data) {
   if (!(await getMuhdar(id))) return null;
   try {
     await col.muhdars.updateOne({ _id: String(id) }, { $set: {
-      name: String(data.name).trim(), customerId: String(data.customerId), regionId: String(data.regionId)
+      name: String(data.name).trim(), customerId: String(data.customerId), regionId: String(data.regionId),
+      ...(data.distanceKm !== undefined ? { distanceKm: data.distanceKm === '' ? null : data.distanceKm } : {})
     } });
   } catch (err) {
     if (err.code === 11000) throw dupNameError('يوجد محضر آخر بنفس الاسم.');
@@ -1284,6 +1307,8 @@ module.exports = {
   getAlertDistanceLimit, setAlertDistanceLimit, alertsSupported, listAlertJustifications, insertAlertJustification,
   vehiclePumpLengthSupported,
   muhdarSupported,
+  customerContactSupported,
+  muhdarDistanceSupported,
   listCustomers, getCustomer, getCustomerByName, insertCustomer, updateCustomer, deleteCustomer,
   countMuhdarsForCustomer, countEntriesForCustomer,
   listRegions, getRegion, getRegionByName, insertRegion, updateRegion, deleteRegion, countMuhdarsForRegion,

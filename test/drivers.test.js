@@ -39,6 +39,8 @@ const REQUIRED = [
   'getAlertDistanceLimit', 'setAlertDistanceLimit', 'alertsSupported', 'listAlertJustifications', 'insertAlertJustification',
   'vehiclePumpLengthSupported',
   'muhdarSupported',
+  'customerContactSupported',
+  'muhdarDistanceSupported',
   'listCustomers', 'getCustomer', 'getCustomerByName', 'insertCustomer', 'updateCustomer', 'deleteCustomer',
   'countMuhdarsForCustomer', 'countEntriesForCustomer',
   'listRegions', 'getRegion', 'getRegionByName', 'insertRegion', 'updateRegion', 'deleteRegion', 'countMuhdarsForRegion',

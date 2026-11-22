@@ -64,11 +64,14 @@ const ALERT_JUSTIFICATIONS_DDL = `
 `;
 
 // الزبائن والمناطق والمحاضر (migrations/005-customers-regions-muhdars.sql): تُنشأ مع القواعد الجديدة فقط.
+// أعمدة التواصل (customers.contact_person/phone) وبُعد المسافة (muhdars.distance_km): migrations/006.
 const MUHDAR_DDL = `
   CREATE TABLE IF NOT EXISTS customers (
     id         TEXT PRIMARY KEY,
     name       TEXT NOT NULL UNIQUE,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    contact_person TEXT,
+    phone      TEXT
   );
   CREATE TABLE IF NOT EXISTS regions (
     id         TEXT PRIMARY KEY,
@@ -80,7 +83,8 @@ const MUHDAR_DDL = `
     name        TEXT NOT NULL UNIQUE,
     customer_id TEXT NOT NULL REFERENCES customers(id),
     region_id   TEXT NOT NULL REFERENCES regions(id),
-    created_at  TEXT NOT NULL
+    created_at  TEXT NOT NULL,
+    distance_km REAL
   );
   CREATE INDEX IF NOT EXISTS ix_muhdars_customer ON muhdars(customer_id);
   CREATE INDEX IF NOT EXISTS ix_muhdars_region ON muhdars(region_id);
@@ -254,6 +258,7 @@ function init(options) {
     db.exec('CREATE INDEX IF NOT EXISTS ix_entries_muhdar ON entries(muhdar_id)');
   }
   _muhdarOk = false; _muhdarChecked = 0;
+  _contactOk = false; _contactChecked = 0; _distOk = false; _distChecked = 0;
 
   // لا يوجد نظام migration عام هنا: الجداول القديمة (sessions، audit، vehicles،
   // entries) قد تكون أُنشئت قبل إضافة هذه الحقول، فنضيف الأعمدة الناقصة يدويًا.
@@ -1203,6 +1208,30 @@ function muhdarSupported() {
   return _muhdarOk;
 }
 
+// أعمدة migration 006: فحص قراءة فقط بنفس نمط الفحوص الأخرى (الموجب يُخزَّن، والسالب يُعاد فحصه كل 30 ثانية).
+function columnsSupported(table, cols) {
+  const names = db.prepare(`SELECT name FROM pragma_table_info('${table}')`).all().map(c => c.name);
+  return cols.every(c => names.includes(c));
+}
+let _contactOk = false, _contactChecked = 0;
+function customerContactSupported() {
+  if (_contactOk) return true;
+  const now = Date.now();
+  if (_contactChecked && now - _contactChecked < 30000) return false;
+  _contactChecked = now;
+  _contactOk = columnsSupported('customers', ['contact_person', 'phone']);
+  return _contactOk;
+}
+let _distOk = false, _distChecked = 0;
+function muhdarDistanceSupported() {
+  if (_distOk) return true;
+  const now = Date.now();
+  if (_distChecked && now - _distChecked < 30000) return false;
+  _distChecked = now;
+  _distOk = columnsSupported('muhdars', ['distance_km']);
+  return _distOk;
+}
+
 function dupNameError(msg) {
   const e = new Error(msg);
   e.duplicateName = true;
@@ -1211,26 +1240,36 @@ function dupNameError(msg) {
 
 // جدولا الزبائن والمناطق متطابقان في الشكل (id, name, created_at). أسماء الجداول ثوابت داخلية.
 function lookupOut(r) { return r ? { id: r.id, name: r.name, createdAt: r.created_at } : null; }
+// الزبون: يزيد اسم التواصل والهاتف (فارغان قبل تطبيق migration 006).
+function customerOut(r) {
+  return r ? { ...lookupOut(r), contactPerson: r.contact_person || '', phone: r.phone || '' } : null;
+}
+const outFor = t => (t === 'customers' ? customerOut : lookupOut);
 function listLookup(t) {
   if (!muhdarSupported()) return [];
-  return db.prepare(`SELECT * FROM ${t} ORDER BY name`).all().map(lookupOut);
+  return db.prepare(`SELECT * FROM ${t} ORDER BY name`).all().map(outFor(t));
 }
-function getLookup(t, id) { return lookupOut(db.prepare(`SELECT * FROM ${t} WHERE id = ?`).get(String(id))); }
-function getLookupByName(t, name) { return lookupOut(db.prepare(`SELECT * FROM ${t} WHERE name = ?`).get(String(name).trim())); }
-function insertLookup(t, prefix, label, name) {
+function getLookup(t, id) { return outFor(t)(db.prepare(`SELECT * FROM ${t} WHERE id = ?`).get(String(id))); }
+function getLookupByName(t, name) { return outFor(t)(db.prepare(`SELECT * FROM ${t} WHERE name = ?`).get(String(name).trim())); }
+// extra: أعمدة إضافية {عمود: قيمة} (أسماء الأعمدة ثوابت داخلية).
+function insertLookup(t, prefix, label, name, extra) {
   const id = newId(prefix);
+  const xc = Object.keys(extra || {});
   try {
-    db.prepare(`INSERT INTO ${t} (id, name, created_at) VALUES (?,?,?)`).run(id, String(name).trim(), new Date().toISOString());
+    db.prepare(`INSERT INTO ${t} (id, name, created_at${xc.map(c => ', ' + c).join('')}) VALUES (?,?,?${xc.map(() => ',?').join('')})`)
+      .run(id, String(name).trim(), new Date().toISOString(), ...xc.map(c => extra[c]));
   } catch (err) {
     if (/UNIQUE constraint failed/i.test(err.message)) throw dupNameError(`${label} مسجّل مسبقًا.`);
     throw err;
   }
   return getLookup(t, id);
 }
-function updateLookup(t, label, id, name) {
+function updateLookup(t, label, id, name, extra) {
   if (!getLookup(t, id)) return null;
+  const xc = Object.keys(extra || {});
   try {
-    db.prepare(`UPDATE ${t} SET name = ? WHERE id = ?`).run(String(name).trim(), String(id));
+    db.prepare(`UPDATE ${t} SET name = ?${xc.map(c => ', ' + c + ' = ?').join('')} WHERE id = ?`)
+      .run(String(name).trim(), ...xc.map(c => extra[c]), String(id));
   } catch (err) {
     if (/UNIQUE constraint failed/i.test(err.message)) throw dupNameError(`${label} بهذا الاسم موجود مسبقًا.`);
     throw err;
@@ -1242,8 +1281,11 @@ function deleteLookup(t, id) { return db.prepare(`DELETE FROM ${t} WHERE id = ?`
 const listCustomers = () => listLookup('customers');
 const getCustomer = id => getLookup('customers', id);
 const getCustomerByName = name => getLookupByName('customers', name);
-const insertCustomer = name => insertLookup('customers', 'c', 'هذا الزبون', name);
-const updateCustomer = (id, name) => updateLookup('customers', 'زبون', id, name);
+// contact: { contactPerson, phone } أو undefined (لا تغيير). تُهمَل قبل تطبيق migration 006.
+const customerExtra = contact => (contact && customerContactSupported())
+  ? { contact_person: contact.contactPerson || null, phone: contact.phone || null } : undefined;
+const insertCustomer = (name, contact) => insertLookup('customers', 'c', 'هذا الزبون', name, customerExtra(contact));
+const updateCustomer = (id, name, contact) => updateLookup('customers', 'زبون', id, name, customerExtra(contact));
 const deleteCustomer = id => deleteLookup('customers', id);
 const listRegions = () => listLookup('regions');
 const getRegion = id => getLookup('regions', id);
@@ -1270,6 +1312,7 @@ function muhdarOut(r) {
     id: r.id, name: r.name,
     customerId: r.customer_id, customerName: r.customer_name,
     regionId: r.region_id, regionName: r.region_name,
+    distanceKm: r.distance_km === null || r.distance_km === undefined ? null : r.distance_km,
     createdAt: r.created_at
   } : null;
 }
@@ -1282,8 +1325,10 @@ function getMuhdarByName(name) { return muhdarOut(db.prepare(`${MUHDAR_SELECT} W
 function insertMuhdar(data) {
   const id = newId('m');
   try {
-    db.prepare('INSERT INTO muhdars (id, name, customer_id, region_id, created_at) VALUES (?,?,?,?,?)')
-      .run(id, String(data.name).trim(), String(data.customerId), String(data.regionId), new Date().toISOString());
+    const useD = muhdarDistanceSupported();
+    db.prepare(`INSERT INTO muhdars (id, name, customer_id, region_id, created_at${useD ? ', distance_km' : ''}) VALUES (?,?,?,?,?${useD ? ',?' : ''})`)
+      .run(id, String(data.name).trim(), String(data.customerId), String(data.regionId), new Date().toISOString(),
+           ...(useD ? [data.distanceKm === undefined || data.distanceKm === '' ? null : data.distanceKm] : []));
   } catch (err) {
     if (/UNIQUE constraint failed/i.test(err.message)) throw dupNameError('هذا المحضر مسجّل مسبقًا.');
     throw err;
@@ -1293,8 +1338,10 @@ function insertMuhdar(data) {
 function updateMuhdar(id, data) {
   if (!getMuhdar(id)) return null;
   try {
-    db.prepare('UPDATE muhdars SET name = ?, customer_id = ?, region_id = ? WHERE id = ?')
-      .run(String(data.name).trim(), String(data.customerId), String(data.regionId), String(id));
+    const setD = muhdarDistanceSupported() && data.distanceKm !== undefined;
+    db.prepare(`UPDATE muhdars SET name = ?, customer_id = ?, region_id = ?${setD ? ', distance_km = ?' : ''} WHERE id = ?`)
+      .run(String(data.name).trim(), String(data.customerId), String(data.regionId),
+           ...(setD ? [data.distanceKm === '' ? null : data.distanceKm] : []), String(id));
   } catch (err) {
     if (/UNIQUE constraint failed/i.test(err.message)) throw dupNameError('يوجد محضر آخر بنفس الاسم.');
     throw err;
@@ -1325,6 +1372,8 @@ module.exports = {
   getAlertDistanceLimit, setAlertDistanceLimit, alertsSupported, listAlertJustifications, insertAlertJustification,
   vehiclePumpLengthSupported,
   muhdarSupported,
+  customerContactSupported,
+  muhdarDistanceSupported,
   listCustomers, getCustomer, getCustomerByName, insertCustomer, updateCustomer, deleteCustomer,
   countMuhdarsForCustomer, countEntriesForCustomer,
   listRegions, getRegion, getRegionByName, insertRegion, updateRegion, deleteRegion, countMuhdarsForRegion,
