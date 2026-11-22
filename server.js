@@ -21,6 +21,7 @@ const path   = require('node:path');
 const config = require('./config');
 const db     = require('./db');
 const { buildReportPdf } = require('./pdf-export');
+const { buildReportXlsx } = require('./xlsx-export');
 const reportsCore = require('./reports-core');
 
 const ROOT     = __dirname;
@@ -1147,6 +1148,27 @@ async function route(req, res, url) {
     return send(res, 200, buffer, {
       'Content-Type': 'application/pdf',
       'Content-Disposition': 'attachment; filename="report.pdf"'
+    });
+  }
+
+  // تصدير Excel (.xlsx): هو المسار الذي تستعمله أزرار «تصدير Excel» في الواجهة بدل PDF. نفس مدخلات PDF
+  // (عنوان/أعمدة/صفوف جاهزة من جدول العميل) ونفس الصلاحية: أي حساب مسجَّل يصدّر ما يراه هو نفسه.
+  if (p === '/api/export/xlsx' && m === 'POST') {
+    const actor = await requireRole(req, res); if (!actor) return;
+    const b = await readJson(req);
+    const title = requireText(b.title, 'عنوان التقرير', 200);
+    const columns = Array.isArray(b.columns) ? b.columns.slice(0, 60).map(c => str(c, 80)) : [];
+    const rows = Array.isArray(b.rows) ? b.rows.slice(0, 20000).map(r => Array.isArray(r) ? r.slice(0, columns.length) : []) : [];
+    if (!columns.length) return fail(res, 400, 'لا توجد أعمدة لهذا التقرير.');
+
+    let buffer;
+    try { buffer = buildReportXlsx(title, columns, rows); }
+    catch (err) { return fail(res, 500, 'تعذّر توليد ملف Excel.'); }
+
+    await db.audit(actor, clientIp(req), 'export_xlsx', null, { title, rows: rows.length });
+    return send(res, 200, buffer, {
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="report.xlsx"'
     });
   }
 
