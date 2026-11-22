@@ -25,7 +25,7 @@ const REQUIRED = [
   'insertUser', 'getUserByUsername', 'getUser', 'listUsers', 'updateUser', 'setUserActive', 'changeUserPassword',
   'login', 'logout', 'sessionUser', 'purgeExpiredSessions',
   'checkLockout', 'noteLoginFailure', 'clearLoginFailures',
-  'audit', 'listAudit',
+  'audit', 'listAudit', 'listAuditBetween',
   'listVehicles', 'listEntries', 'listEntriesRange', 'getEntry', 'getEntryByClientRef', 'getVehicle', 'getVehicleByName',
   'lastKmForVehicle', 'vehicleIsOut', 'countEntriesForVehicle',
   'insertEntry', 'closeEntry', 'updateEntry', 'deleteEntry',

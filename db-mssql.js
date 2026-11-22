@@ -795,6 +795,14 @@ async function listAudit(limit) {
               FROM dbo.audit ORDER BY id DESC`, [['n', sql.Int, n]]);
 }
 
+// سجل التدقيق لنافذة زمنية [sinceIso, untilIso) — الأحدث أولًا. at نص ISO (UTC) فالمقارنة النصية صحيحة.
+async function listAuditBetween(sinceIso, untilIso, limit) {
+  const n = Math.min(Number(limit) || 1000, 1000);
+  return all(`SELECT TOP (@n) id, at, username, role, ip, action, entity_id, detail
+              FROM dbo.audit WHERE at >= @s AND at < @u ORDER BY id DESC`,
+    [['n', sql.Int, n], ['s', NV(40), String(sinceIso)], ['u', NV(40), String(untilIso)]]);
+}
+
 /* --------------------------------------------------------- تحويل الصفوف */
 
 function entryOut(r) {
@@ -1740,7 +1748,7 @@ module.exports = {
   insertUser, getUserByUsername, getUser, listUsers, updateUser, setUserActive, changeUserPassword,
   login, logout, sessionUser, purgeExpiredSessions,
   checkLockout, noteLoginFailure, clearLoginFailures,
-  audit, listAudit,
+  audit, listAudit, listAuditBetween,
   listVehicles, listEntries, listEntriesRange, getEntry, getEntryByClientRef, getVehicle, getVehicleByName,
   lastKmForVehicle, vehicleIsOut, countEntriesForVehicle,
   insertEntry, closeEntry, updateEntry, deleteEntry,

@@ -1000,15 +1000,26 @@
 
     <div class="card">
       <div class="card-head">
-        <h2>سجل التدقيق — آخر العمليات الحسّاسة</h2>
-        <button class="btn-ghost btn-sm" id="audit-refresh">تحديث</button>
+        <h2>سجل التدقيق — عمليات اليوم التشغيلي</h2>
+        <span class="count-badge" id="audit-total">0</span>
       </div>
+      <div class="rp-bar">
+        <div class="field"><label for="audit-day">اليوم التشغيلي</label><input type="date" id="audit-day"></div>
+        <div class="rp-actions">
+          <button type="button" class="btn-ghost btn-sm" data-au-act="dprev">◄ اليوم السابق</button>
+          <button type="button" class="btn-ghost btn-sm" data-au-act="dnext" id="audit-dnext">اليوم التالي ►</button>
+          <button type="button" class="btn-ghost btn-sm" data-au-act="today">اليوم الحالي</button>
+          <button type="button" class="btn-ghost btn-sm" id="audit-refresh" data-au-act="refresh">تحديث</button>
+        </div>
+      </div>
+      <p class="rp-meta" id="audit-meta"></p>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>الوقت</th><th>المستخدم</th><th>الدور</th><th>الإجراء</th><th>الجهاز</th><th>التفاصيل</th></tr></thead>
+          <thead><tr><th>الوقت</th><th>المستخدم</th><th>الدور</th><th>الإجراء</th><th>التفاصيل</th></tr></thead>
           <tbody id="audit-body"></tbody>
         </table>
       </div>
+      <p class="empty" id="audit-empty" hidden>لا توجد عمليات مسجّلة في هذا اليوم التشغيلي.</p>
     </div>
   </section>
 
@@ -4244,9 +4255,26 @@ async function loadUsers(){
   }catch(e){ toast(e.message, 'err'); }
 }
 
+// سجل التدقيق يومي: يوم تشغيلي واحد (يبدأ 03:00 افتراضيًا) مع التنقّل بين الأيام. لا يُعرَض عنوان الجهاز (IP).
+let auditDay = '';
+function auditSetDay(day){
+  const today = currentOpDay();
+  if(!day || day > today) day = today;       // لا أيام مستقبلية
+  auditDay = day;
+  $('audit-day').value = day;
+  $('audit-day').max = today;
+  $('audit-dnext').disabled = (day >= today);
+}
+function auditShiftDay(d){
+  const t = new Date((auditDay || currentOpDay()) + 'T12:00:00');
+  t.setDate(t.getDate() + d);
+  return t.getFullYear() + '-' + pad(t.getMonth()+1) + '-' + pad(t.getDate());
+}
+
 async function loadAudit(){
+  if(!auditDay) auditSetDay(currentOpDay());
   try{
-    const data = await api('GET', '/api/audit?limit=100');
+    const data = await api('GET', '/api/audit?day=' + encodeURIComponent(auditDay));
     const label = {
       login:'دخول', logout:'خروج', login_failed:'محاولة دخول فاشلة',
       depart:'تسجيل مغادرة', return:'تسجيل عودة', edit_entry:'تعديل عملية',
@@ -4270,10 +4298,15 @@ async function loadAudit(){
         <td>${escapeHtml(r.username || '—')}</td>
         <td>${escapeHtml(ROLE_NAME[r.role] || r.role)}</td>
         <td>${label[r.action] || escapeHtml(r.action)}</td>
-        <td>${escapeHtml(r.ip)}</td>
         <td>${escapeHtml(detail)}</td>
       </tr>`;
     }).join('');
+    $('audit-total').textContent = data.rows.length;
+    $('audit-empty').hidden = data.rows.length > 0;
+    const hh = String(data.dayStartHour).padStart(2, '0') + ':00';
+    $('audit-meta').textContent = `اليوم التشغيلي ${data.day}: من ${hh} حتى ${hh} من اليوم التالي`
+      + (data.day === data.today ? ' (اليوم الحالي)' : '')
+      + (data.truncated ? ` — يُعرَض آخر ${data.limit} إجراءً فقط` : '');
   }catch(e){ toast(e.message, 'err'); }
 }
 
@@ -4458,7 +4491,15 @@ function bindEvents(){
     else if(btn.dataset.pw) resetUserPasswordPrompt(btn.dataset.pw);
     else if(btn.dataset.toggle) toggleUserActive(btn.dataset.toggle);
   });
-  $('audit-refresh').addEventListener('click', loadAudit);
+  $('audit-day').addEventListener('change', ()=>{ auditSetDay($('audit-day').value); loadAudit(); });
+  $('audit-refresh').closest('.rp-actions').addEventListener('click', ev=>{
+    const b = ev.target.closest('[data-au-act]'); if(!b) return;
+    const act = b.dataset.auAct;
+    if(act === 'dprev') auditSetDay(auditShiftDay(-1));
+    else if(act === 'dnext') auditSetDay(auditShiftDay(1));
+    else if(act === 'today') auditSetDay(currentOpDay());
+    loadAudit();
+  });
   $('backup-btn').addEventListener('click', async ()=>{
     try{ const r = await api('POST','/api/backup'); toast('أُنشئت نسخة: ' + r.file, 'ok'); }
     catch(e){ toast(e.message, 'err'); }

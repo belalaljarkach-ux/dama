@@ -1241,7 +1241,20 @@ async function route(req, res, url) {
 
   if (p === '/api/audit' && m === 'GET') {
     const actor = await requireRole(req, res, 'admin'); if (!actor) return;
-    return json(res, 200, { rows: await db.listAudit(url.searchParams.get('limit')) });
+    // سجل التدقيق يومي: يعرض عمليات «يوم تشغيلي» واحد (يبدأ config.dayStartHour، 03:00 — نفس مقياس بقية النظام)،
+    // والافتراضي اليوم التشغيلي الحالي؛ day=YYYY-MM-DD للرجوع لأي يوم سابق. عنوان الجهاز (IP) لا يُرسَل للواجهة
+    // إطلاقًا (يبقى مخزَّنًا في القاعدة للتحقيق فقط).
+    const sp = url.searchParams;
+    const today = reportsCore.currentOpDay(new Date(), config.dayStartHour);
+    const day = str(sp.get('day'), 10) || today;
+    if (!reportsCore.isDateKey(day)) return fail(res, 400, 'صيغة التاريخ غير صحيحة.');
+    const limit = Math.min(Math.max(parseInt(sp.get('limit'), 10) || 1000, 1), 1000);
+    const hh = String(config.dayStartHour).padStart(2, '0') + ':00:00';
+    const since = new Date(`${day}T${hh}`).toISOString();
+    const until = new Date(`${reportsCore.shiftDateKey(day, 1)}T${hh}`).toISOString();
+    const found = await db.listAuditBetween(since, until, limit);
+    const rows = found.map(({ ip, ...rest }) => rest);
+    return json(res, 200, { rows, day, today, dayStartHour: config.dayStartHour, limit, truncated: rows.length >= limit });
   }
 
   if (p === '/api/backup' && m === 'POST') {
