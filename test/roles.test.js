@@ -141,7 +141,9 @@ const ok = async (...a) => { const r = await call(...a); if (r.status >= 400) th
       ['POST', '/api/vehicles', { name: 'م', baselineKm: 0, type: 'service' }],
       ['POST', '/api/entries', { vehicle: 'خدمة 1', driver: 'س', customer: 'ز', departTime: '08:00' }],
       ['POST', '/api/fuel/fills', { vehicle: 'خدمة 1', km: 1, qty: 1, tank: 'tank1', time: '08:00' }],
-      ['POST', '/api/fuel/baseline', { tank: 'tank1', initialQty: 1, initialMeter: 1 }]
+      ['POST', '/api/fuel/baseline', { tank: 'tank1', initialQty: 1, initialMeter: 1 }],
+      // يُضاف في النهاية: الاختبارات اللاحقة تفهرس probes بالموضع
+      ['POST', '/api/export/xlsx', { title: 't', columns: ['a'], rows: [['1']] }]
     ];
     for (const [m, u, b] of probes) {
       await check(`${m} ${u.split('?')[0]}: حالة المنسق = حالة المدير`, async () => {

@@ -1547,22 +1547,22 @@ async function api(method, path, body, isSync){
   return data;
 }
 
-// تصدير PDF عام: يرسل عنوان/أعمدة/صفوف الجدول المعروض فعليًا (بلا إعادة حساب)
-// لمسار /api/export/pdf، ويُنزّل الملف تلقائيًا — لا نافذة طباعة متصفح.
-async function exportPdf(title, columns, rows){
+// تصدير Excel عام: يرسل عنوان/أعمدة/صفوف الجدول المعروض فعليًا (بلا إعادة حساب)
+// لمسار /api/export/xlsx، ويُنزّل ملف .xlsx تلقائيًا — لا نافذة طباعة متصفح.
+async function exportExcel(title, columns, rows){
   let res;
   try{
-    res = await fetch('/api/export/pdf', {
+    res = await fetch('/api/export/xlsx', {
       method:'POST', credentials:'same-origin',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({title, columns, rows})
     });
   }catch(err){
-    toast('تعذّر الوصول إلى السيرفر لتصدير PDF.', 'err');
+    toast('تعذّر الوصول إلى السيرفر لتصدير Excel.', 'err');
     return;
   }
   if(!res.ok){
-    let msg = `تعذّر توليد PDF (${res.status})`;
+    let msg = `تعذّر توليد ملف Excel (${res.status})`;
     try{ const data = await res.json(); if(data.error) msg = data.error; }catch(e){}
     toast(msg, 'err');
     return;
@@ -1571,28 +1571,28 @@ async function exportPdf(title, columns, rows){
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = title.replace(/[\\/:*?"<>|]/g,'').trim().slice(0,80) + '.pdf';
+  a.download = (title.replace(/[\\/:*?"<>|]/g,'').trim().slice(0,80) || 'تقرير') + '.xlsx';
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(()=> URL.revokeObjectURL(url), 10000);
 }
 
-// سجلّ مؤقّت يربط زر PDF بأعمدة/صفوف تقريره: تفادٍ لتضمين كل بيانات الجدول
+// سجلّ مؤقّت يربط زر التصدير بأعمدة/صفوف تقريره: تفادٍ لتضمين كل بيانات الجدول
 // كسلسلة JSON داخل HTML (حجم كبير ومخاطر ترميز)، فقط مفتاح قصير بدلًا منها.
-let pdfExportRegistry = {};
-let pdfExportSeq = 0;
-function pdfButton(title, columns, rows){
-  const key = 'p' + (pdfExportSeq++);
-  pdfExportRegistry[key] = { title, columns, rows };
-  return `<button type="button" class="btn-ghost btn-sm btn-pdf" data-pdf-key="${key}">تصدير PDF</button>`;
+let excelExportRegistry = {};
+let excelExportSeq = 0;
+function excelButton(title, columns, rows){
+  const key = 'x' + (excelExportSeq++);
+  excelExportRegistry[key] = { title, columns, rows };
+  return `<button type="button" class="btn-ghost btn-sm btn-xlsx" data-xlsx-key="${key}">تصدير Excel</button>`;
 }
 document.addEventListener('click', (ev)=>{
-  const btn = ev.target.closest('.btn-pdf');
+  const btn = ev.target.closest('.btn-xlsx');
   if(!btn) return;
-  const entry = pdfExportRegistry[btn.dataset.pdfKey];
+  const entry = excelExportRegistry[btn.dataset.xlsxKey];
   if(!entry) return;
-  exportPdf(entry.title, entry.columns, entry.rows);
+  exportExcel(entry.title, entry.columns, entry.rows);
 });
 
 function handleSessionExpired(){
@@ -3438,7 +3438,7 @@ function rpRender(k){
         </tr></thead><tbody>${rows.map(r=>`<tr class="${r.diff!==null && Math.abs(r.diff)>50 ? 'is-alert':''}">
           <td class="veh-cell">${escapeHtml(r.vehicle)}</td><td>${r.gateLast??'—'}</td><td>${r.fuelLast??'—'}</td>
           <td>${r.diff===null?'—':r.diff.toFixed(1)}</td></tr>`).join('')}</tbody></table></div>
-          ${pdfButton('مقارنة كيلومترات البوابة والمازوت', ['الآلية','آخر كم من سجل البوابة','آخر كم من سجل المازوت','الفرق'],
+          ${excelButton('مقارنة كيلومترات البوابة والمازوت', ['الآلية','آخر كم من سجل البوابة','آخر كم من سجل المازوت','الفرق'],
             rows.map(r=>[r.vehicle, r.gateLast??'—', r.fuelLast??'—', r.diff===null?'—':r.diff.toFixed(1)]))}`;
       break;
     }
@@ -3461,7 +3461,7 @@ function rpRender(k){
               <span>${escapeHtml(e.vehicle)} — ${escapeHtml(e.driver)} — ${escapeHtml(e.customer)} ${tags.join(' ')}</span>
               <span>${fmtDuration(e._durationMin)} · ${fmtDistance(e._distance, e)} (${e.dateKey} ${fmtTime12(e.departTime)} · يوم العودة التشغيلي ${e.returnOpDay})</span>
             </div>`;
-          }).join('') + pdfButton('التنبيهات', ['الآلية','السائق','الزبون','النوع','المدة','المسافة','المغادرة','يوم العودة'],
+          }).join('') + excelButton('التنبيهات', ['الآلية','السائق','الزبون','النوع','المدة','المسافة','المغادرة','يوم العودة'],
             list.map(e => [e.vehicle, e.driver, e.customer,
               [timeIds.has(e.id)?'وقت':'', distIds.has(e.id)?'مسافة':''].filter(Boolean).join(' + '),
               fmtDuration(e._durationMin), fmtDistance(e._distance, e), `${e.dateKey} ${fmtTime12(e.departTime)}`, e.returnOpDay]));
@@ -3486,12 +3486,12 @@ function rpGroupedTrips(done, field, otherCol, otherField, timeIds, distIds){
         <td>${fmtDuration(e._durationMin)} ${timeIds.has(e.id)?'⏱️⚠️':''}</td>
         <td>${fmtDistance(e._distance, e)} ${distIds.has(e.id)?'📏⚠️':''}</td>
       </tr>`).join('');
-    const pdfRows = list.map(e => [e.dateKey, fmtTime12(e.departTime), e[otherField], e.customer,
+    const xlsxRows = list.map(e => [e.dateKey, fmtTime12(e.departTime), e[otherField], e.customer,
       fmtDuration(e._durationMin), fmtDistance(e._distance, e)]);
     return `<div class="group">
       <div class="group-head"><span>${escapeHtml(key)}</span>
       <span class="total">${list.length} عملية · متوسط المدة ${fmtDuration(Math.round(avgDur))} · إجمالي المسافة ${totalDist.toFixed(1)} كم
-      ${pdfButton(key, ['التاريخ','المغادرة',otherCol,'الزبون','المدة','المسافة'], pdfRows)}</span></div>
+      ${excelButton(key, ['التاريخ','المغادرة',otherCol,'الزبون','المدة','المسافة'], xlsxRows)}</span></div>
       <div class="table-wrap"><table><thead><tr>
         <th>التاريخ</th><th>المغادرة</th><th>${otherCol}</th><th>الزبون</th><th>المدة</th><th>المسافة</th>
       </tr></thead><tbody>${rows}</tbody></table></div></div>`;
@@ -3600,9 +3600,9 @@ function monthlyTable(rows, keyLabel, cols, periodLabel, title){
   const body = sorted.map(r=>`<tr><td>${r.month}</td><td>${escapeHtml(r.key)}</td>${
     cols.map(c=>`<td>${c.value(r)}</td>`).join('')
   }</tr>`).join('');
-  const pdfRows = sorted.map(r=> [r.month, r.key, ...cols.map(c=>String(c.value(r)))]);
+  const xlsxRows = sorted.map(r=> [r.month, r.key, ...cols.map(c=>String(c.value(r)))]);
   return `<div class="table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
-    ${pdfButton(title || keyLabel, [periodLabel||'الفترة', keyLabel, ...cols.map(c=>c.label)], pdfRows)}`;
+    ${excelButton(title || keyLabel, [periodLabel||'الفترة', keyLabel, ...cols.map(c=>c.label)], xlsxRows)}`;
 }
 
 function groupMonthly(list, dateKeyOf, nameOf, granularity){
