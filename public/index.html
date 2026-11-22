@@ -219,6 +219,9 @@
 
   /* ---- الجداول ---- */
   .table-wrap{overflow-x:auto;}
+  .sub-section + .sub-section{margin-top:22px;padding-top:16px;border-top:1px dashed var(--line);}
+  .sub-title{font-size:15px;font-weight:800;margin:0 0 10px;}
+  .more-row{display:flex;justify-content:center;margin-top:10px;}
   table{width:100%;border-collapse:collapse;font-size:14px;}
   th,td{padding:9px 8px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap;}
   th{font-size:12px;font-weight:700;color:var(--ink-soft);background:var(--surface-2);}
@@ -526,6 +529,11 @@
             <label for="fm-region">المنطقة</label>
             <select id="fm-region" required></select>
           </div>
+          <div class="field" id="fm-distance-field">
+            <label for="fm-distance">بُعد المسافة (كم)</label>
+            <input type="number" id="fm-distance" min="0" step="any" inputmode="decimal" placeholder="مثال: 12.5">
+            <small>إدخال يدوي بالكيلومتر، يقبل الكسور — اختياري.</small>
+          </div>
           <p class="form-error" id="fm-error" hidden></p>
           <div class="form-actions">
             <button type="submit" class="btn-primary" id="fm-submit-btn">حفظ المحضر</button>
@@ -537,7 +545,7 @@
         <h2>المحاضر المسجّلة</h2>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>المحضر</th><th>الزبون</th><th>المنطقة</th></tr></thead>
+            <thead><tr><th>المحضر</th><th>الزبون</th><th>المنطقة</th><th>البُعد (كم)</th></tr></thead>
             <tbody id="fm-table-body"></tbody>
           </table>
         </div>
@@ -819,46 +827,36 @@
             <label for="c-name">اسم الزبون</label>
             <input id="c-name" maxlength="200" required>
           </div>
+          <div class="field">
+            <label for="c-contact">اسم التواصل</label>
+            <input id="c-contact" maxlength="120" autocomplete="off" placeholder="الشخص المسؤول عند الزبون">
+          </div>
+          <div class="field">
+            <label for="c-phone">رقم الهاتف</label>
+            <input id="c-phone" type="tel" inputmode="tel" dir="ltr" maxlength="30" autocomplete="off" placeholder="مثال: 0555 123 456">
+          </div>
+          <p class="search-meta" id="contact-unsupported" hidden style="grid-column:1/-1">حقلا «اسم التواصل» و«رقم الهاتف» يتطلبان تطبيق <b>migrations/006-customer-contact-muhdar-distance.sql</b> على قاعدة البيانات.</p>
           <p class="form-error" id="customer-error" hidden></p>
           <div class="form-actions">
             <button type="submit" class="btn-primary" id="c-submit-btn">حفظ الزبون</button>
             <button type="button" class="btn-ghost" id="c-cancel-edit" hidden>إلغاء</button>
           </div>
         </form>
-        <div class="table-wrap">
+        <div class="table-wrap" id="customer-table-wrap">
           <table>
-            <thead><tr><th>الزبون</th><th>عدد المحاضر</th><th></th></tr></thead>
+            <thead><tr><th>الزبون</th><th>اسم التواصل</th><th>الهاتف</th><th>عدد المحاضر</th><th></th></tr></thead>
             <tbody id="customer-table-body"></tbody>
           </table>
         </div>
         <p class="empty" id="customer-empty" hidden>لا يوجد زبائن مسجّلون بعد.</p>
-      </div>
-
-      <div class="card">
-        <div class="card-head"><h2 id="region-form-title">إضافة منطقة</h2></div>
-        <form id="region-form" class="form-grid" novalidate>
-          <input type="hidden" id="g-edit-id" value="">
-          <div class="field field-wide">
-            <label for="g-name">اسم المنطقة</label>
-            <input id="g-name" maxlength="200" required>
-          </div>
-          <p class="form-error" id="region-error" hidden></p>
-          <div class="form-actions">
-            <button type="submit" class="btn-primary" id="g-submit-btn">حفظ المنطقة</button>
-            <button type="button" class="btn-ghost" id="g-cancel-edit" hidden>إلغاء</button>
-          </div>
-        </form>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>المنطقة</th><th>عدد المحاضر</th><th></th></tr></thead>
-            <tbody id="region-table-body"></tbody>
-          </table>
+        <div class="more-row" id="customer-more-row" hidden>
+          <button type="button" class="btn-ghost" id="customer-more-btn" aria-expanded="false" aria-controls="customer-table-body">More</button>
         </div>
-        <p class="empty" id="region-empty" hidden>لا توجد مناطق مسجّلة بعد.</p>
       </div>
 
-      <div class="card">
-        <div class="card-head"><h2 id="muhdar-form-title">إضافة محضر</h2></div>
+      <!-- المحضر: بطاقة واحدة بنموذج واحد وزر حفظ واحد (المنطقة تُختار من القائمة أو تُكتب جديدة فتُنشأ مع المحضر) -->
+      <div class="card" id="region-muhdar-card">
+        <div class="card-head"><h2 id="muhdar-form-title">المحضر</h2></div>
         <form id="muhdar-form" class="form-grid" novalidate>
           <input type="hidden" id="mh-edit-id" value="">
           <div class="field">
@@ -871,8 +869,16 @@
           </div>
           <div class="field">
             <label for="mh-region">المنطقة</label>
-            <select id="mh-region" required></select>
+            <input id="mh-region" list="dl-mh-regions" maxlength="200" autocomplete="off" placeholder="اختر منطقة أو اكتب اسم منطقة جديدة" required>
+            <datalist id="dl-mh-regions"></datalist>
+            <small>المنطقة الجديدة تُسجَّل تلقائيًا مع حفظ المحضر.</small>
           </div>
+          <div class="field">
+            <label for="mh-distance">بُعد المسافة (كم)</label>
+            <input type="number" id="mh-distance" min="0" step="any" inputmode="decimal" placeholder="مثال: 12.5">
+            <small>إدخال يدوي بالكيلومتر، يقبل الكسور — اختياري.</small>
+          </div>
+          <p class="search-meta" id="distance-unsupported" hidden style="grid-column:1/-1">حقل «بُعد المسافة» يتطلب تطبيق <b>migrations/006-customer-contact-muhdar-distance.sql</b> على قاعدة البيانات.</p>
           <p class="form-error" id="muhdar-error" hidden></p>
           <div class="form-actions">
             <button type="submit" class="btn-primary" id="mh-submit-btn">حفظ المحضر</button>
@@ -880,13 +886,30 @@
           </div>
         </form>
         <p class="search-meta">عند اختيار المحضر في تسجيل خروج آلية يظهر الزبون المرتبط به تلقائيًا.</p>
+        <!-- سجل المحاضر والمناطق مخفي افتراضيًا؛ يُظهره الزر عند الحاجة للتعديل أو الحذف -->
+        <div class="more-row" id="muhdar-records-row">
+          <button type="button" class="btn-ghost" id="muhdar-records-btn" aria-expanded="false" aria-controls="muhdar-records">إظهار السجل</button>
+        </div>
+        <div id="muhdar-records" hidden>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>المحضر</th><th>الزبون</th><th>المنطقة</th><th></th></tr></thead>
+            <thead><tr><th>المحضر</th><th>الزبون</th><th>المنطقة</th><th>البُعد (كم)</th><th></th></tr></thead>
             <tbody id="muhdar-table-body"></tbody>
           </table>
         </div>
         <p class="empty" id="muhdar-empty" hidden>لا توجد محاضر مسجّلة بعد.</p>
+
+        <div class="sub-section">
+          <h3 class="sub-title">المناطق المسجّلة</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>المنطقة</th><th>عدد المحاضر</th><th></th></tr></thead>
+              <tbody id="region-table-body"></tbody>
+            </table>
+          </div>
+          <p class="empty" id="region-empty" hidden>لا توجد مناطق مسجّلة بعد.</p>
+        </div>
+        </div>
       </div>
     </div>
 
@@ -1054,6 +1077,10 @@ let drivers  = [];
 let customers = [];                  // من /api/state: قائمة الزبائن (فارغة قبل تطبيق migration 005)
 let regions = [];
 let muhdars = [];                    // كل محضر: { id, name, customerId, customerName, regionId, regionName }
+let customerContactSupported = false; // أعمدة التواصل (migration 006)
+let muhdarDistanceSupported = false;  // عمود بُعد المسافة (migration 006)
+let muhdarRecordsShown = false;       // سجل المحاضر والمناطق مخفي افتراضيًا
+let customersExpanded = false;        // جدول الزبائن مختصر افتراضيًا (More)
 let muhdarSupported = false;         // هل جداول المحاضر مُطبَّقة؟ (فعندها الزبون يأتي من المحضر لا من الكتابة)
 let fuelFills   = [];
 let fuelSupply  = [];
@@ -1593,6 +1620,8 @@ async function refresh(){
   guestTypeSupported = !!data.guestVisitTypeSupported;
   pumpLenSupported = !!data.vehiclePumpLengthSupported;
   muhdarSupported = !!data.muhdarSupported;
+  customerContactSupported = !!data.customerContactSupported;
+  muhdarDistanceSupported = !!data.muhdarDistanceSupported;
   customers = data.customers || [];
   regions = data.regions || [];
   muhdars = data.muhdars || [];
@@ -1882,7 +1911,7 @@ function renderSelects(){
     cust.placeholder = '';
   }
   setSelectOptions($('mh-customer'), [...customers].sort(byNameAr).map(c=>({value:c.id, label:c.name})), '— اختر الزبون —');
-  setSelectOptions($('mh-region'), [...regions].sort(byNameAr).map(g=>({value:g.id, label:g.name})), '— اختر المنطقة —');
+  $('dl-mh-regions').innerHTML = [...regions].sort(byNameAr).map(g=>`<option value="${escapeHtml(g.name)}"></option>`).join('');
   setSelectOptions($('fm-customer'), [...customers].sort(byNameAr).map(c=>({value:c.id, label:c.name})), '— اختر الزبون —');
   setSelectOptions($('fm-region'), [...regions].sort(byNameAr).map(g=>({value:g.id, label:g.name})), '— اختر المنطقة —');
 }
@@ -2154,15 +2183,14 @@ const TANK_LABEL = { tank1:'الخزان الأول', tank2:'الخزان الث
 /* ---- الإعداد الأولي: الزبائن والمناطق والمحاضر (الإدارة للأدمن وحده؛ الخادم يفرض الصلاحية) ---- */
 const LOOKUP_UI = {
   customer: { url:'/api/customers', noun:'الزبون', list:()=>customers, id:'c-edit-id', name:'c-name', err:'customer-error',
-              title:'customer-form-title', btn:'c-submit-btn', cancel:'c-cancel-edit', addTitle:'إضافة زبون', editTitle:'تعديل اسم زبون', addBtn:'حفظ الزبون' },
-  region:   { url:'/api/regions', noun:'المنطقة', list:()=>regions, id:'g-edit-id', name:'g-name', err:'region-error',
-              title:'region-form-title', btn:'g-submit-btn', cancel:'g-cancel-edit', addTitle:'إضافة منطقة', editTitle:'تعديل اسم منطقة', addBtn:'حفظ المنطقة' }
+              title:'customer-form-title', btn:'c-submit-btn', cancel:'c-cancel-edit', addTitle:'إضافة زبون', editTitle:'تعديل بيانات زبون', addBtn:'حفظ الزبون' }
 };
 
 function resetLookupForm(kind){
   const u = LOOKUP_UI[kind];
   $(u.id).value = '';
   $(u.name).value = '';
+  if(kind === 'customer'){ $('c-contact').value = ''; $('c-phone').value = ''; }
   $(u.title).textContent = u.addTitle;
   $(u.btn).textContent = u.addBtn;
   $(u.cancel).hidden = true;
@@ -2177,9 +2205,15 @@ async function submitLookup(kind, ev){
   const name = $(u.name).value.trim();
   if(!name){ err.textContent = `الرجاء إدخال اسم ${u.noun}.`; err.hidden = false; return; }
   const editId = $(u.id).value;
+  const body = {name};
+  // بيانات التواصل تُرسَل فقط بعد تطبيق migration 006 (قبله الحقلان معطّلان)
+  if(kind === 'customer' && customerContactSupported){
+    body.contactPerson = $('c-contact').value.trim();
+    body.phone = $('c-phone').value.trim();
+  }
   try{
-    if(editId) await api('PUT', `${u.url}/${editId}`, {name});
-    else       await api('POST', u.url, {name});
+    if(editId) await api('PUT', `${u.url}/${editId}`, body);
+    else       await api('POST', u.url, body);
     resetLookupForm(kind);
     await refresh(); render();
     toast(editId ? 'حُفظت التعديلات' : `أُضيف ${u.noun} ${name}`, 'ok');
@@ -2195,6 +2229,7 @@ function startEditLookup(kind, id){
   if(!row) return;
   $(u.id).value = row.id;
   $(u.name).value = row.name;
+  if(kind === 'customer'){ $('c-contact').value = row.contactPerson || ''; $('c-phone').value = row.phone || ''; }
   $(u.title).textContent = u.editTitle;
   $(u.btn).textContent = 'حفظ التعديلات';
   $(u.cancel).hidden = false;
@@ -2215,12 +2250,39 @@ async function deleteLookupAction(kind, id){
   }
 }
 
+// المناطق: تُنشأ مع المحضر؛ هنا إعادة التسمية والحذف فقط (الخادم يمنع حذف منطقة مرتبطة بمحاضر).
+async function renameRegionAction(id){
+  const g = regions.find(x=>x.id === id);
+  if(!g) return;
+  const name = (prompt('اسم المنطقة', g.name) || '').trim();
+  if(!name || name === g.name) return;
+  try{
+    await api('PUT', `/api/regions/${id}`, {name});
+    await refresh(); render();
+    toast('حُفظت التعديلات', 'ok');
+  }catch(e){
+    toast(e.offline ? 'هذا الإجراء يتطلب اتصالًا بالخادم.' : e.message, 'err');
+  }
+}
+async function deleteRegionAction(id){
+  const g = regions.find(x=>x.id === id);
+  if(!g || !confirm(`حذف المنطقة «${g.name}»؟`)) return;
+  try{
+    await api('DELETE', `/api/regions/${id}`);
+    await refresh(); render();
+    toast('حُذفت المنطقة', 'ok');
+  }catch(e){
+    toast(e.offline ? 'هذا الإجراء يتطلب اتصالًا بالخادم.' : e.message, 'err');
+  }
+}
+
 function resetMuhdarForm(){
   $('mh-edit-id').value = '';
   $('mh-name').value = '';
   $('mh-customer').value = '';
   $('mh-region').value = '';
-  $('muhdar-form-title').textContent = 'إضافة محضر';
+  $('mh-distance').value = '';
+  $('muhdar-form-title').textContent = 'المحضر';
   $('mh-submit-btn').textContent = 'حفظ المحضر';
   $('mh-cancel-edit').hidden = true;
   $('muhdar-error').hidden = true;
@@ -2230,11 +2292,20 @@ async function submitMuhdar(ev){
   ev.preventDefault();
   const err = $('muhdar-error');
   err.hidden = true;
-  const body = { name: $('mh-name').value.trim(), customerId: $('mh-customer').value, regionId: $('mh-region').value };
-  if(!body.name || !body.customerId || !body.regionId){
-    err.textContent = 'الرجاء إدخال اسم المحضر واختيار الزبون والمنطقة.';
+  const regionText = $('mh-region').value.trim();
+  const knownRegion = regions.find(g=>g.name === regionText);
+  // منطقة من القائمة → regionId؛ نص جديد → regionName فيُنشئها الخادم مع المحضر في العملية نفسها
+  const body = { name: $('mh-name').value.trim(), customerId: $('mh-customer').value };
+  if(knownRegion) body.regionId = knownRegion.id; else body.regionName = regionText;
+  if(!body.name || !body.customerId || !regionText){
+    err.textContent = 'الرجاء إدخال اسم المحضر واختيار الزبون وتحديد المنطقة.';
     err.hidden = false;
     return;
+  }
+  if(muhdarDistanceSupported){
+    const dist = parseDistanceInput($('mh-distance').value);
+    if(dist === false){ err.textContent = DISTANCE_INPUT_MSG; err.hidden = false; return; }
+    body.distanceKm = dist;   // null = بلا قيمة (يفرّغ القيمة عند التعديل)
   }
   const editId = $('mh-edit-id').value;
   try{
@@ -2255,8 +2326,9 @@ function startEditMuhdar(id){
   $('mh-edit-id').value = m.id;
   $('mh-name').value = m.name;
   $('mh-customer').value = m.customerId;
-  $('mh-region').value = m.regionId;
-  $('muhdar-form-title').textContent = 'تعديل بيانات محضر';
+  $('mh-region').value = m.regionName;
+  $('mh-distance').value = m.distanceKm === null || m.distanceKm === undefined ? '' : m.distanceKm;
+  $('muhdar-form-title').textContent = 'المحضر — تعديل البيانات';
   $('mh-submit-btn').textContent = 'حفظ التعديلات';
   $('mh-cancel-edit').hidden = false;
   $('mh-name').focus();
@@ -2275,6 +2347,16 @@ async function deleteMuhdarAction(id){
   }
 }
 
+// بُعد المسافة: رقم > 0 (يقبل الكسور والأرقام العربية والفاصلة العشرية)، أو فارغ = null، أو false إن كان غير صالح.
+const DISTANCE_INPUT_MSG = '«بُعد المسافة (كم)» يجب أن يكون رقمًا أكبر من صفر.';
+function parseDistanceInput(raw){
+  const t = String(raw ?? '').trim();
+  if(t === '') return null;
+  const n = Number(t.replace(/[٠-٩]/g, d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(',', '.'));
+  return (isFinite(n) && n > 0) ? n : false;
+}
+const fmtMuhdarKm = v => (v === null || v === undefined) ? '—' : `${Number(v)}`;
+
 /* ---- تبويب «المحاضر» (مدير الآليات والمنسق): إضافة محضر وعرض القائمة فقط ---- */
 async function submitFleetMuhdar(ev){
   ev.preventDefault();
@@ -2286,9 +2368,14 @@ async function submitFleetMuhdar(ev){
     err.hidden = false;
     return;
   }
+  if(muhdarDistanceSupported){
+    const dist = parseDistanceInput($('fm-distance').value);
+    if(dist === false){ err.textContent = DISTANCE_INPUT_MSG; err.hidden = false; return; }
+    if(dist !== null) body.distanceKm = dist;
+  }
   try{
     await api('POST', '/api/muhdars', body);
-    $('fm-name').value = ''; $('fm-customer').value = ''; $('fm-region').value = '';
+    $('fm-name').value = ''; $('fm-customer').value = ''; $('fm-region').value = ''; $('fm-distance').value = '';
     await refresh(); render();
     toast(`أُضيف المحضر ${body.name}`, 'ok');
   }catch(e){
@@ -2302,25 +2389,45 @@ function renderFleetMuhdars(){
   $('fm-section').hidden = !muhdarSupported;
   if(!muhdarSupported) return;
   $('fm-table-body').innerHTML = [...muhdars].sort(byNameAr).map(m=>
-    `<tr><td class="veh-cell">${escapeHtml(m.name)}</td><td>${escapeHtml(m.customerName)}</td><td>${escapeHtml(m.regionName)}</td></tr>`).join('');
+    `<tr><td class="veh-cell">${escapeHtml(m.name)}</td><td>${escapeHtml(m.customerName)}</td><td>${escapeHtml(m.regionName)}</td><td>${fmtMuhdarKm(m.distanceKm)}</td></tr>`).join('');
   $('fm-empty').hidden = muhdars.length > 0;
+  $('fm-distance-field').hidden = !muhdarDistanceSupported;
 }
 
+const CUSTOMER_COMPACT_ROWS = 3;
 function renderMasterData(){
   $('muhdar-unsupported').hidden = muhdarSupported;
   $('muhdar-section').hidden = !muhdarSupported;
   if(!muhdarSupported) return;
   const rowActions = id => `<td class="row-actions"><button class="btn-edit" data-id="${id}">تعديل</button><button class="btn-delete" data-id="${id}">حذف</button></td>`;
   const sorted = list => [...list].sort(byNameAr);
-  $('customer-table-body').innerHTML = sorted(customers).map(c=>
-    `<tr><td class="veh-cell">${escapeHtml(c.name)}</td><td>${muhdars.filter(m=>m.customerId === c.id).length}</td>${rowActions(c.id)}</tr>`).join('');
+  // جدول الزبائن مختصر افتراضيًا: أول CUSTOMER_COMPACT_ROWS سطور، وزر More يُظهر الباقي (والعكس).
+  const allCustomers = sorted(customers);
+  const compact = allCustomers.length > CUSTOMER_COMPACT_ROWS;
+  const shown = (compact && !customersExpanded) ? allCustomers.slice(0, CUSTOMER_COMPACT_ROWS) : allCustomers;
+  $('customer-table-body').innerHTML = shown.map(c=>
+    `<tr><td class="veh-cell">${escapeHtml(c.name)}</td><td>${c.contactPerson ? escapeHtml(c.contactPerson) : '—'}</td>`
+    + `<td>${c.phone ? `<span dir="ltr">${escapeHtml(c.phone)}</span>` : '—'}</td>`
+    + `<td>${muhdars.filter(m=>m.customerId === c.id).length}</td>${rowActions(c.id)}</tr>`).join('');
   $('customer-empty').hidden = customers.length > 0;
+  $('customer-more-row').hidden = !compact;
+  const moreBtn = $('customer-more-btn');
+  moreBtn.textContent = customersExpanded ? 'إخفاء (أقل)' : `More (${allCustomers.length - CUSTOMER_COMPACT_ROWS} إضافية)`;
+  moreBtn.setAttribute('aria-expanded', String(customersExpanded));
+  $('c-contact').disabled = !customerContactSupported;
+  $('c-phone').disabled = !customerContactSupported;
+  $('contact-unsupported').hidden = customerContactSupported;
+  $('mh-distance').disabled = !muhdarDistanceSupported;
+  $('distance-unsupported').hidden = muhdarDistanceSupported;
   $('region-table-body').innerHTML = sorted(regions).map(g=>
     `<tr><td class="veh-cell">${escapeHtml(g.name)}</td><td>${muhdars.filter(m=>m.regionId === g.id).length}</td>${rowActions(g.id)}</tr>`).join('');
   $('region-empty').hidden = regions.length > 0;
   $('muhdar-table-body').innerHTML = sorted(muhdars).map(m=>
-    `<tr><td class="veh-cell">${escapeHtml(m.name)}</td><td>${escapeHtml(m.customerName)}</td><td>${escapeHtml(m.regionName)}</td>${rowActions(m.id)}</tr>`).join('');
+    `<tr><td class="veh-cell">${escapeHtml(m.name)}</td><td>${escapeHtml(m.customerName)}</td><td>${escapeHtml(m.regionName)}</td><td>${fmtMuhdarKm(m.distanceKm)}</td>${rowActions(m.id)}</tr>`).join('');
   $('muhdar-empty').hidden = muhdars.length > 0;
+  $('muhdar-records').hidden = !muhdarRecordsShown;
+  $('muhdar-records-btn').textContent = muhdarRecordsShown ? 'إخفاء السجل' : `إظهار السجل (${muhdars.length} محضر، ${regions.length} منطقة)`;
+  $('muhdar-records-btn').setAttribute('aria-expanded', String(muhdarRecordsShown));
 }
 
 /* ---- السائقون ---- */
@@ -4281,7 +4388,7 @@ function bindEvents(){
   $('edit-form').addEventListener('submit', submitEdit);
   $('e-muhdar').addEventListener('change', syncEditMuhdar);
   $('f-muhdar').addEventListener('change', syncDepartureMuhdar);
-  ['f-driver','f-muhdar','e-driver','e-muhdar','e-customer-sel','mh-customer','mh-region','fm-customer','fm-region'].forEach(id=> makeSearchable($(id)));
+  ['f-driver','f-muhdar','e-driver','e-muhdar','e-customer-sel','mh-customer','fm-customer','fm-region'].forEach(id=> makeSearchable($(id)));
   $('e-vehicle').addEventListener('input', updateEditLoadQtyVisibility);
   $('edit-cancel').addEventListener('click', ()=> $('edit-dialog').close());
   $('edit-close').addEventListener('click', ()=> $('edit-dialog').close());
@@ -4299,16 +4406,19 @@ function bindEvents(){
   // المدير — السائقون
   $('driver-form').addEventListener('submit', submitDriver);
   $('customer-form').addEventListener('submit', ev=>submitLookup('customer', ev));
-  $('region-form').addEventListener('submit', ev=>submitLookup('region', ev));
   $('c-cancel-edit').addEventListener('click', ()=>resetLookupForm('customer'));
-  $('g-cancel-edit').addEventListener('click', ()=>resetLookupForm('region'));
-  for(const kind of ['customer','region']){
-    $(`${kind}-table-body`).addEventListener('click', ev=>{
-      const btn = ev.target.closest('button'); if(!btn) return;
-      if(btn.classList.contains('btn-edit')) startEditLookup(kind, btn.dataset.id);
-      else if(btn.classList.contains('btn-delete')) deleteLookupAction(kind, btn.dataset.id);
-    });
-  }
+  $('customer-table-body').addEventListener('click', ev=>{
+    const btn = ev.target.closest('button'); if(!btn) return;
+    if(btn.classList.contains('btn-edit')) startEditLookup('customer', btn.dataset.id);
+    else if(btn.classList.contains('btn-delete')) deleteLookupAction('customer', btn.dataset.id);
+  });
+  $('region-table-body').addEventListener('click', ev=>{
+    const btn = ev.target.closest('button'); if(!btn) return;
+    if(btn.classList.contains('btn-edit')) renameRegionAction(btn.dataset.id);
+    else if(btn.classList.contains('btn-delete')) deleteRegionAction(btn.dataset.id);
+  });
+  $('muhdar-records-btn').addEventListener('click', ()=>{ muhdarRecordsShown = !muhdarRecordsShown; renderMasterData(); });
+  $('customer-more-btn').addEventListener('click', ()=>{ customersExpanded = !customersExpanded; renderMasterData(); });
   $('muhdar-form').addEventListener('submit', submitMuhdar);
   $('fm-form').addEventListener('submit', submitFleetMuhdar);
   $('mh-cancel-edit').addEventListener('click', resetMuhdarForm);

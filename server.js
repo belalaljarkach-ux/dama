@@ -193,6 +193,36 @@ function requireKm(v, label) {
   return n;
 }
 
+// بيانات تواصل الزبون وبُعد المسافة للمحضر (migrations/006). كلها اختيارية؛ undefined = لم تُرسَل (لا تغيير).
+const MAX_DISTANCE_KM = 100000;
+const MIGRATION_006_MSG = 'حقلا التواصل وبُعد المسافة يتطلبان تطبيق migrations/006-customer-contact-muhdar-distance.sql على قاعدة البيانات أولًا.';
+const ARABIC_DIGITS = '٠١٢٣٤٥٦٧٨٩';
+const latinDigits = v => String(v).replace(/[٠-٩]/g, d => String(ARABIC_DIGITS.indexOf(d)));
+
+function parseContact(b) {
+  if (b.contactPerson === undefined && b.phone === undefined) return undefined;
+  const contactPerson = str(b.contactPerson, 120) || null;
+  let phone = str(latinDigits(b.phone === undefined || b.phone === null ? '' : b.phone), 60);
+  if (phone) {
+    const digits = phone.replace(/\D/g, '').length;
+    if (!/^\+?[0-9()\-\s]+$/.test(phone) || digits < 5 || digits > 20 || phone.length > 30) {
+      throw badRequest('رقم الهاتف غير صحيح (أرقام فقط، ويمكن استخدام + و - والمسافات).');
+    }
+  }
+  return { contactPerson, phone: phone || null };
+}
+
+// بُعد المسافة (كم): إدخال يدوي رقمي يقبل الكسور؛ فارغ = بلا قيمة (null).
+function parseDistanceKm(raw) {
+  if (raw === undefined) return undefined;
+  if (raw === null || (typeof raw === 'string' && raw.trim() === '')) return null;
+  const n = typeof raw === 'number' ? raw : Number(latinDigits(raw).trim().replace(',', '.'));
+  if (!isFinite(n) || n <= 0 || n > MAX_DISTANCE_KM) {
+    throw badRequest(`«بُعد المسافة (كم)» يجب أن يكون رقمًا أكبر من صفر وحتى ${MAX_DISTANCE_KM}.`);
+  }
+  return Math.round(n * 1000) / 1000;
+}
+
 function requireTank(v) {
   const s = str(v, 16);
   if (!TANKS.includes(s)) throw badRequest('الخزان غير معروف.');
@@ -389,7 +419,11 @@ async function route(req, res, url) {
       vehiclePumpLengthSupported: await db.vehiclePumpLengthSupported(),
       // قوائم الاختيار (أسماء فقط) لكل الأدوار. فارغة وmuhdarSupported=false قبل تطبيق migration 005.
       muhdarSupported: await db.muhdarSupported(),
-      customers: await db.listCustomers(),
+      customerContactSupported: await db.customerContactSupported(),
+      muhdarDistanceSupported: await db.muhdarDistanceSupported(),
+      // بيانات تواصل الزبون (اسم التواصل والهاتف) للأدمن فقط؛ باقي الأدوار تحصل على الاسم فقط.
+      customers: (await db.listCustomers()).map(c => actor.role === 'admin' ? c
+        : { id: c.id, name: c.name, createdAt: c.createdAt }),
       regions: await db.listRegions(),
       muhdars: await db.listMuhdars(),
       guestStats,
@@ -870,10 +904,12 @@ async function route(req, res, url) {
       if (!(await db.muhdarSupported())) { fail(res, 409, MUHDAR_REQUIRED_MSG); return true; }
       const b = await readJson(req);
       const name = requireText(b.name, `اسم ${label}`, 200);
+      const extra = api.parseExtra ? api.parseExtra(b) : undefined;
+      if (extra && !(await api.extraSupported(extra))) { fail(res, 409, MIGRATION_006_MSG); return true; }
       let row;
-      try { row = await api.insert(name); }
+      try { row = await api.insert(name, extra); }
       catch (err) { if (err.duplicateName) { fail(res, 409, err.message); return true; } throw err; }
-      await db.audit(actor, clientIp(req), 'add_' + names, row.id, { name });
+      await db.audit(actor, clientIp(req), 'add_' + names, row.id, { name, ...(extra || {}) });
       json(res, 201, { [names]: row }); return true;
     }
     if (mm && m === 'PUT') {
@@ -881,6 +917,8 @@ async function route(req, res, url) {
       if (!(await db.muhdarSupported())) { fail(res, 409, MUHDAR_REQUIRED_MSG); return true; }
       const b = await readJson(req);
       const name = requireText(b.name, `اسم ${label}`, 200);
+      const extra = api.parseExtra ? api.parseExtra(b) : undefined;
+      if (extra && !(await api.extraSupported(extra))) { fail(res, 409, MIGRATION_006_MSG); return true; }
       const cur = await api.get(mm[1]);
       if (!cur) { fail(res, 404, `${label} غير موجود.`); return true; }
       if (api.renameGuard && cur.name !== name) {
@@ -888,9 +926,9 @@ async function route(req, res, url) {
         if (msg) { fail(res, 409, msg); return true; }
       }
       let row;
-      try { row = await api.update(mm[1], name); }
+      try { row = await api.update(mm[1], name, extra); }
       catch (err) { if (err.duplicateName) { fail(res, 409, err.message); return true; } throw err; }
-      await db.audit(actor, clientIp(req), 'edit_' + names, row.id, { before: cur.name, after: name });
+      await db.audit(actor, clientIp(req), 'edit_' + names, row.id, { before: cur.name, after: name, ...(extra || {}) });
       json(res, 200, { [names]: row }); return true;
     }
     if (mm && m === 'DELETE') {
@@ -908,8 +946,11 @@ async function route(req, res, url) {
   }
 
   if (await lookupRoutes('customers', 'الزبون', 'customer', {
-    insert: n => db.insertCustomer(n), get: id => db.getCustomer(id), update: (id, n) => db.updateCustomer(id, n),
+    insert: (n, x) => db.insertCustomer(n, x), get: id => db.getCustomer(id), update: (id, n, x) => db.updateCustomer(id, n, x),
     remove: id => db.deleteCustomer(id),
+    // اسم التواصل ورقم الهاتف (اختياريان). قبل تطبيق migration 006 يُرفض إدخال قيمة فقط، وتفريغهما مسموح.
+    parseExtra: parseContact,
+    extraSupported: async x => !(x.contactPerson || x.phone) || (await db.customerContactSupported()),
     // اسم الزبون نسخة نصية على سجلات الخروج القديمة: لا نغيّره ما دامت له سجلات (حفاظًا على البيانات السابقة).
     renameGuard: async c => (await db.countEntriesForCustomer(c.name)) > 0
       ? 'لا يمكن تعديل اسم زبون له سجلات سابقة. أضف زبونًا جديدًا بدلًا من ذلك.' : null,
@@ -936,16 +977,40 @@ async function route(req, res, url) {
       const b = await readJson(req);
       const name = requireText(b.name, 'اسم المحضر', 200);
       const customerId = requireText(b.customerId, 'الزبون', 64);
-      const regionId = requireText(b.regionId, 'المنطقة', 64);
+      const distanceKm = parseDistanceKm(b.distanceKm);
+      if (distanceKm && !(await db.muhdarDistanceSupported())) return fail(res, 409, MIGRATION_006_MSG);
       if (!(await db.getCustomer(customerId))) return fail(res, 400, 'الزبون المختار غير موجود في القائمة.');
-      if (!(await db.getRegion(regionId))) return fail(res, 400, 'المنطقة المختارة غير موجودة في القائمة.');
+      // المنطقة: بالمعرّف (اختيار من القائمة)، أو باسمها (regionName) لحفظ المحضر ومنطقته الجديدة بعملية واحدة.
+      // إنشاء منطقة جديدة بالاسم للأدمن وحده (إدارة المناطق له)؛ غيره يختار من الموجود فقط.
+      let regionId = str(b.regionId, 64);
+      const regionName = str(b.regionName, 200);
+      if (!regionId) {
+        if (!regionName) throw badRequest('الحقل «المنطقة» مطلوب.');
+        const found = await db.getRegionByName(regionName);
+        if (found) regionId = found.id;
+        else if (actor.role !== 'admin') return fail(res, 400, 'المنطقة المختارة غير موجودة في القائمة.');
+      }
+      if (regionId && !(await db.getRegion(regionId))) return fail(res, 400, 'المنطقة المختارة غير موجودة في القائمة.');
+      // لا ننشئ المنطقة قبل التأكد أن اسم المحضر غير مكرّر (حتى لا تبقى منطقة يتيمة عند الفشل).
+      const sameName = await db.getMuhdarByName(name);
+      if (sameName && (!mMuhdar || sameName.id !== mMuhdar[1])) return fail(res, 409, mMuhdar ? 'يوجد محضر آخر بنفس الاسم.' : 'هذا المحضر مسجّل مسبقًا.');
+      let createdRegion = null;
+      if (!regionId) {
+        try { createdRegion = await db.insertRegion(regionName); }
+        catch (err) {
+          if (!err.duplicateName) throw err;
+          createdRegion = await db.getRegionByName(regionName);   // سباق: أُنشئت للتو من طلب آخر
+        }
+        regionId = createdRegion.id;
+        await db.audit(actor, clientIp(req), 'add_region', regionId, { name: regionName, viaMuhdar: name });
+      }
       let row;
       try {
-        row = mMuhdar ? await db.updateMuhdar(mMuhdar[1], { name, customerId, regionId })
-                      : await db.insertMuhdar({ name, customerId, regionId });
+        row = mMuhdar ? await db.updateMuhdar(mMuhdar[1], { name, customerId, regionId, distanceKm })
+                      : await db.insertMuhdar({ name, customerId, regionId, distanceKm });
       } catch (err) { if (err.duplicateName) return fail(res, 409, err.message); throw err; }
       if (!row) return fail(res, 404, 'المحضر غير موجود.');
-      await db.audit(actor, clientIp(req), mMuhdar ? 'edit_muhdar' : 'add_muhdar', row.id, { name, customerId, regionId });
+      await db.audit(actor, clientIp(req), mMuhdar ? 'edit_muhdar' : 'add_muhdar', row.id, { name, customerId, regionId, distanceKm });
       return json(res, mMuhdar ? 200 : 201, { muhdar: row });
     }
     if (mMuhdar && m === 'DELETE') {
